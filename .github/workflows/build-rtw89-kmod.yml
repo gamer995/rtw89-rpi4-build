@@ -79,88 +79,95 @@ jobs:
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
                O=.build modules_prepare -j$(nproc)
 
-      # ── 5. 克隆 rtw89 驱动源码 ────────────────────────────────
-      #    使用 linux-wireless 仓库中与 iStoreOS 匹配的驱动提交
-      - name: Cache rtw89 driver source
-        id: cache-rtw89
-        uses: actions/cache@v4
-        with:
-          path: rtw89
-          key: rtw89-driver-d2f175ea
-
-      - name: Clone rtw89 driver source
-        if: steps.cache-rtw89.outputs.cache-hit != 'true'
+      # ── 5. 从已下载的内核源码中提取 rtw89 驱动 ──────────────
+      #    Linux 6.6.119 已包含 rtw89，无需单独克隆
+      - name: Extract rtw89 driver from kernel source
         run: |
-          git clone --no-checkout https://git.kernel.org/pub/scm/linux/kernel/git/wireless/wireless.git rtw89-git
-          cd rtw89-git
-          git checkout d2f175ea -- drivers/net/wireless/realtek/rtw89/
-          mkdir -p ../rtw89
-          cp -r drivers/net/wireless/realtek/rtw89/. ../rtw89/
-          cd ..
-          rm -rf rtw89-git
+          SRC="linux-6.6.119/drivers/net/wireless/realtek/rtw89"
+          if [ ! -d "$SRC" ]; then
+            echo "ERROR: rtw89 driver not found in kernel source at $SRC"
+            ls linux-6.6.119/drivers/net/wireless/realtek/ || true
+            exit 1
+          fi
+          cp -r "$SRC" rtw89
+          echo "=== rtw89 driver files ==="
+          ls rtw89/*.c | wc -l
+          ls rtw89/
 
       # ── 6. 应用补丁 ───────────────────────────────────────────
       - name: Apply patches
         run: |
+          # 检查 patch 的路径深度以匹配正确的 -p 值
+          # patch 文件的路径前缀一般是 a/drivers/net/wireless/realtek/rtw89/
+          # 从 rtw89/ 目录执行，去掉前 5 级: -p5
           cd rtw89
+          echo "=== Available .c files ==="
+          ls *.c | head -5
+
           # patch 0003: skip USB AP key-disable flush
           if [ -f "../0003-rtw89-mac80211-skip-usb-ap-key-disable-flush.patch" ]; then
-            patch -p4 < "../0003-rtw89-mac80211-skip-usb-ap-key-disable-flush.patch"
-            echo "Applied patch 0003"
+            patch --dry-run -p5 < "../0003-rtw89-mac80211-skip-usb-ap-key-disable-flush.patch" 2>&1 | head -3
+            patch -p5 < "../0003-rtw89-mac80211-skip-usb-ap-key-disable-flush.patch" && echo "Applied patch 0003 (p5)" \
+              || { patch -p4 < "../0003-rtw89-mac80211-skip-usb-ap-key-disable-flush.patch" && echo "Applied patch 0003 (p4)"; }
           fi
           # patch 0004: skip USB AP ops-flush txq (root cause fix)
           if [ -f "../0004-rtw89-mac80211-skip-usb-ap-ops-flush-txq.patch" ]; then
-            patch -p4 < "../0004-rtw89-mac80211-skip-usb-ap-ops-flush-txq.patch"
-            echo "Applied patch 0004"
+            patch -p5 < "../0004-rtw89-mac80211-skip-usb-ap-ops-flush-txq.patch" && echo "Applied patch 0004 (p5)" \
+              || { patch -p4 < "../0004-rtw89-mac80211-skip-usb-ap-ops-flush-txq.patch" && echo "Applied patch 0004 (p4)"; }
           fi
 
-      # ── 7. 创建独立 Makefile（将 rtw89 目录编译为独立 KO）────
+      # ── 7. 生成 out-of-tree Makefile ─────────────────────────
       - name: Create out-of-tree Makefile
         run: |
-          cat > rtw89/Makefile.standalone << 'MAKEFILE'
-          # --- rtw89 out-of-tree build Makefile ---
-          KDIR ?= ../linux-6.6.119/.build
-          CROSS_COMPILE ?= aarch64-linux-gnu-
-          ARCH ?= arm64
+          # 从内核内置 Makefile 提取对象列表，然后生成独立构建文件
+          echo "=== Original Makefile ==="
+          cat rtw89/Makefile | head -60
 
+          # 直接使用内核源码中的 Makefile（已包含正确的 obj-m/obj-y 定义）
+          # 只需把 obj-y → obj-m，让驱动作为独立模块编译
+          sed 's/obj-\$(CONFIG_RTW89_CORE)/obj-m/g;
+               s/obj-\$(CONFIG_RTW89_USB)/obj-m/g;
+               s/obj-\$(CONFIG_RTW89_8922A)/obj-m/g;
+               s/obj-\$(CONFIG_RTW89_8922AE_2GHZ_USB)/obj-m/g;
+               s/rtw89core-/rtw89_core_git-/g;
+               s/rtw89-usb-/rtw89_usb_git-/g;
+               s/rtw89core\./rtw89_core_git\./g;
+               s/\brtw89usb\b/rtw89_usb_git/g' \
+            rtw89/Makefile > rtw89/Makefile.build
+
+          # 添加 obj-m 声明（模块名映射到 iStoreOS 包的 _git 后缀名）
+          cat >> rtw89/Makefile.build << 'EXTRA'
+
+          # === out-of-tree build targets (rename to match iStoreOS .ko names) ===
           obj-m += rtw89_core_git.o
           obj-m += rtw89_usb_git.o
           obj-m += rtw89_8922a_git.o
           obj-m += rtw89_8922au_git.o
+          rtw89_core_git-objs  := $(rtw89core-objs)
+          rtw89_usb_git-objs   := usb.o
+          rtw89_8922a_git-objs := rtw8922a.o rtw8922a_rfk.o
+          rtw89_8922au_git-objs := rtw8922au.o
+          EXTRA
 
-          # Map "git" suffix modules to their actual source objects
-          rtw89_core_git-y := core.o mac.o phy.o debug.o efuse.o fw.o hci.o \
-                              ps.o reg.o sar.o ser.o util.o acpi.o coex.o \
-                              lps.o rtc.o chan.o mac80211.o regd.o txrx.o \
-                              wow.o
-          rtw89_usb_git-y := usb.o
-          rtw89_8922a_git-y := rtw8922a.o rtw8922a_rfk.o
-          rtw89_8922au_git-y := rtw8922au.o
-
-          all:
-          	$(MAKE) -C $(KDIR) M=$(PWD) ARCH=$(ARCH) \
-          	        CROSS_COMPILE=$(CROSS_COMPILE) \
-          	        EXTRA_CFLAGS="-DCONFIG_RTW89_DEBUG -Wno-error" \
-          	        modules
-
-          clean:
-          	$(MAKE) -C $(KDIR) M=$(PWD) ARCH=$(ARCH) \
-          	        CROSS_COMPILE=$(CROSS_COMPILE) clean
-          MAKEFILE
+          echo "=== Generated Makefile.build ==="
+          cat rtw89/Makefile.build
 
       # ── 8. 编译内核模块 ───────────────────────────────────────
       - name: Build rtw89 kernel modules
         run: |
-          cd rtw89
-          make -f Makefile.standalone KDIR=../linux-6.6.119/.build \
-               ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) 2>&1 | tee /tmp/build.log
-          echo "=== Built .ko files ==="
-          find . -name "*.ko" -exec ls -lh {} \;
-          echo "=== Vermagic check ==="
-          for ko in *.ko; do
-            echo "$ko:"
-            aarch64-linux-gnu-objdump -j .modinfo -s "$ko" 2>/dev/null | grep -A2 vermagic || true
-          done
+          # 使用内核 kbuild 系统编译，指定额外 Kconfig 选项
+          make -C linux-6.6.119/.build \
+               M="$(pwd)/rtw89" \
+               ARCH=arm64 \
+               CROSS_COMPILE=aarch64-linux-gnu- \
+               CONFIG_RTW89_CORE=m \
+               CONFIG_RTW89_USB=m \
+               CONFIG_RTW89_8922A=m \
+               CONFIG_RTW89_8922AE_2GHZ_USB=m \
+               CONFIG_RTW89_DEBUG=y \
+               -j$(nproc) 2>&1 | tee /tmp/build.log
+          echo "=== Build result ==="
+          find rtw89 -name "*.ko" -exec ls -lh {} \;
 
       # ── 9. 重新打包为 .ipk ───────────────────────────────────
       - name: Repack into .ipk
@@ -173,10 +180,23 @@ jobs:
           OUTDIR="ipk-staging"
 
           mkdir -p "$OUTDIR/lib/modules/$KVER"
-          cp rtw89/rtw89_core_git.ko  "$OUTDIR/lib/modules/$KVER/"
-          cp rtw89/rtw89_usb_git.ko   "$OUTDIR/lib/modules/$KVER/"
-          cp rtw89/rtw89_8922a_git.ko "$OUTDIR/lib/modules/$KVER/"
-          cp rtw89/rtw89_8922au_git.ko "$OUTDIR/lib/modules/$KVER/"
+          # 查找编译生成的 .ko 文件（支持不同编译输出路径）
+          for ko in rtw89_core_git rtw89_usb_git rtw89_8922a_git rtw89_8922au_git; do
+            found=$(find rtw89 -name "${ko}.ko" | head -1)
+            if [ -n "$found" ]; then
+              cp "$found" "$OUTDIR/lib/modules/$KVER/"
+              echo "Copied: $found"
+            else
+              echo "WARNING: $ko.ko not found!"
+            fi
+          done
+
+          echo "=== Vermagic of compiled modules ==="
+          for ko in "$OUTDIR/lib/modules/$KVER/"*.ko; do
+            printf "%s: " "$(basename "$ko")"
+            aarch64-linux-gnu-objdump -j .modinfo -s "$ko" 2>/dev/null \
+              | grep -o 'vermagic=[^ ]*[^.]*' | head -1 || echo "(unknown)"
+          done
 
           mkdir -p "$OUTDIR/CONTROL"
           cat > "$OUTDIR/CONTROL/control" << EOF
