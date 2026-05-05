@@ -5,8 +5,8 @@ with open('rtw89/mac80211.c', 'r') as f:
 
 orig = src
 
-ANCHOR = '\treturn ret;\n}\n\nstatic int rtw89_ops_set_key'
-HELPER = '\treturn ret;\n}\n\nstatic bool rtw89_is_usb_ap(struct rtw89_dev *rtwdev,\n\t\t\t     struct ieee80211_vif *vif)\n{\n\treturn rtwdev->hci.type == RTW89_HCI_TYPE_USB &&\n\t       vif && vif->type == NL80211_IFTYPE_AP;\n}\n\nstatic int rtw89_ops_set_key'
+ANCHOR = '\treturn __rtw89_ops_sta_state(hw, vif, sta, old_state, new_state);\n}\n\nstatic int rtw89_ops_set_key'
+HELPER = '\treturn __rtw89_ops_sta_state(hw, vif, sta, old_state, new_state);\n}\n\nstatic bool rtw89_is_usb_ap(struct rtw89_dev *rtwdev,\n\t\t\t     struct ieee80211_vif *vif)\n{\n\treturn rtwdev->hci.type == RTW89_HCI_TYPE_USB &&\n\t       vif && vif->type == NL80211_IFTYPE_AP;\n}\n\nstatic int rtw89_ops_set_key'
 
 if 'rtw89_is_usb_ap' in src:
     print('helper already present')
@@ -19,8 +19,8 @@ else:
     print(repr(src[max(0,idx-150):idx+50]))
     sys.exit(1)
 
-OLD_KEY = '\tcase DISABLE_KEY:\n\t\trtw89_hci_flush_queues(rtwdev, BIT(rtwdev->hw->queues) - 1,\n\t\t\t\t       false);\n\t\trtw89_mac_flush_txq(rtwdev, BIT(rtwdev->hw->queues) - 1, false);\n\t\tret = rtw89_cam_sec_key_del'
-NEW_KEY = '\tcase DISABLE_KEY:\n\t\tif (!rtw89_is_usb_ap(rtwdev, vif)) {\n\t\t\trtw89_hci_flush_queues(rtwdev, BIT(rtwdev->hw->queues) - 1,\n\t\t\t\t\t       false);\n\t\t\trtw89_mac_flush_txq(rtwdev, BIT(rtwdev->hw->queues) - 1, false);\n\t\t}\n\t\tret = rtw89_cam_sec_key_del'
+OLD_KEY = '\tcase DISABLE_KEY:\n\t\tflush_work(&rtwdev->txq_work);\n\t\trtw89_hci_flush_queues(rtwdev, BIT(rtwdev->hw->queues) - 1,\n\t\t\t\t       false);\n\t\trtw89_mac_flush_txq(rtwdev, BIT(rtwdev->hw->queues) - 1, false);\n\t\tret = rtw89_cam_sec_key_del'
+NEW_KEY = '\tcase DISABLE_KEY:\n\t\tflush_work(&rtwdev->txq_work);\n\t\tif (!rtw89_is_usb_ap(rtwdev, vif)) {\n\t\t\trtw89_hci_flush_queues(rtwdev, BIT(rtwdev->hw->queues) - 1,\n\t\t\t\t\t       false);\n\t\t\trtw89_mac_flush_txq(rtwdev, BIT(rtwdev->hw->queues) - 1, false);\n\t\t}\n\t\tret = rtw89_cam_sec_key_del'
 
 if OLD_KEY in src:
     src = src.replace(OLD_KEY, NEW_KEY, 1)
@@ -45,5 +45,7 @@ if src == orig:
     print('ERROR: no changes')
     sys.exit(1)
 else:
+    with open('rtw89/mac80211.c', 'w') as f:
+        f.write(src)
     print('SUCCESS')
     print(f'Lines: {len(orig.splitlines())} -> {len(src.splitlines())}')

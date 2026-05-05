@@ -79,67 +79,42 @@ jobs:
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
                O=.build modules_prepare -j$(nproc)
 
-      # ── 5. 从已下载的内核源码中提取 rtw89 驱动 ──────────────
-      #    Linux 6.6.119 已包含 rtw89，无需单独克隆
-      - name: Extract rtw89 driver from kernel source
+      # ── 5. 克隆 morrownr/rtw89 驱动（固定到 d2f175ea 提交）────
+      #    morrownr/rtw89 已包含 8922AU/USB 支持，Makefile 带 _git 后缀
+      - name: Cache morrownr/rtw89 driver source
+        id: cache-rtw89
+        uses: actions/cache@v4
+        with:
+          path: rtw89
+          key: morrownr-rtw89-d2f175ea
+
+      - name: Clone morrownr/rtw89 driver source
+        if: steps.cache-rtw89.outputs.cache-hit != 'true'
         run: |
-          SRC="linux-6.6.119/drivers/net/wireless/realtek/rtw89"
-          if [ ! -d "$SRC" ]; then
-            echo "ERROR: rtw89 driver not found in kernel source at $SRC"
-            ls linux-6.6.119/drivers/net/wireless/realtek/ || true
-            exit 1
-          fi
-          cp -r "$SRC" rtw89
-          echo "=== rtw89 driver files ==="
-          ls rtw89/*.c | wc -l
-          ls rtw89/
+          git init rtw89
+          cd rtw89
+          git remote add origin https://github.com/morrownr/rtw89.git
+          git fetch --depth 1 origin d2f175eafa0a4ef9cc65e7073a77e60238cae614
+          git checkout FETCH_HEAD
+          echo "=== morrownr/rtw89 driver files ==="
+          ls *.c | wc -l
+          ls *.c
 
       # ── 6. 应用修改（基于内容搜索，不依赖行号）──────────────
       - name: Apply patches
-        run: python3 apply_patches.py
-
-      # ── 7. 生成 out-of-tree Makefile ─────────────────────────
-      - name: Create out-of-tree Makefile
         run: |
-          echo "=== Original Makefile (first 80 lines) ==="
-          head -80 rtw89/Makefile
+          # 确保 mac80211.c 是未打补丁的原始版本（缓存命中时可能已打过补丁）
+          git -C rtw89 checkout -- mac80211.c
+          python3 apply_patches.py
 
-          # 从内核 Makefile 提取 rtw89core-y 的所有 .o 文件列表
-          # 格式: rtw89core-y += foo.o  → 提取 foo.o
-          CORE_OBJS=$(grep -E '^rtw89core-[y+]' rtw89/Makefile | grep -oE '[a-zA-Z0-9_]+\.o' | tr '\n' ' ')
-          echo "Core objs: $CORE_OBJS"
-
-          cat > rtw89/Makefile.build << EOF
-          # out-of-tree Makefile for rtw89 with _git suffix module names
-
-          obj-m += rtw89_core_git.o
-          obj-m += rtw89_usb_git.o
-          obj-m += rtw89_8922a_git.o
-          obj-m += rtw89_8922au_git.o
-
-          rtw89_core_git-y := $CORE_OBJS
-          rtw89_usb_git-y := usb.o
-          rtw89_8922a_git-y := rtw8922a.o rtw8922a_rfk.o
-          rtw89_8922au_git-y := rtw8922au.o
-
-          ccflags-y := -DCONFIG_RTW89_DEBUG
-          EOF
-
-          echo "=== Generated Makefile.build ==="
-          cat rtw89/Makefile.build
-
-      # ── 8. 编译内核模块 ───────────────────────────────────────
+      # ── 7. 编译内核模块 ───────────────────────────────────────
+      #    morrownr/rtw89 Makefile 已有 obj-m += rtw89_*_git.o 定义
       - name: Build rtw89 kernel modules
         run: |
-          # 将生成的 Makefile.build 替换原 Makefile（保留备份）
-          cp rtw89/Makefile rtw89/Makefile.orig
-          cp rtw89/Makefile.build rtw89/Makefile
-
           make -C linux-6.6.119/.build \
                M="$(pwd)/rtw89" \
                ARCH=arm64 \
                CROSS_COMPILE=aarch64-linux-gnu- \
-               KBUILD_MODPOST_WARN=1 \
                -j$(nproc) 2>&1 | tee /tmp/build.log
 
           echo "=== Build result ==="
@@ -149,7 +124,7 @@ jobs:
             exit 1
           }
 
-      # ── 9. 重新打包为 .ipk ───────────────────────────────────
+      # ── 8. 重新打包为 .ipk ───────────────────────────────────
       - name: Repack into .ipk
         run: |
           set -e
@@ -199,7 +174,7 @@ jobs:
           echo "Created: $IPKFILE ($(du -h "$IPKFILE" | cut -f1))"
           echo "IPKFILE=$IPKFILE" >> "$GITHUB_ENV"
 
-      # ── 10. 上传 artifact ─────────────────────────────────────
+      # ── 9. 上传 artifact ──────────────────────────────────────
       - name: Upload .ipk artifact
         uses: actions/upload-artifact@v4
         with:
