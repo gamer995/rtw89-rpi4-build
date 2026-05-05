@@ -119,35 +119,29 @@ jobs:
       # ── 7. 生成 out-of-tree Makefile ─────────────────────────
       - name: Create out-of-tree Makefile
         run: |
-          # 从内核内置 Makefile 提取对象列表，然后生成独立构建文件
-          echo "=== Original Makefile ==="
-          cat rtw89/Makefile | head -60
+          echo "=== Original Makefile (first 80 lines) ==="
+          head -80 rtw89/Makefile
 
-          # 直接使用内核源码中的 Makefile（已包含正确的 obj-m/obj-y 定义）
-          # 只需把 obj-y → obj-m，让驱动作为独立模块编译
-          sed 's/obj-\$(CONFIG_RTW89_CORE)/obj-m/g;
-               s/obj-\$(CONFIG_RTW89_USB)/obj-m/g;
-               s/obj-\$(CONFIG_RTW89_8922A)/obj-m/g;
-               s/obj-\$(CONFIG_RTW89_8922AE_2GHZ_USB)/obj-m/g;
-               s/rtw89core-/rtw89_core_git-/g;
-               s/rtw89-usb-/rtw89_usb_git-/g;
-               s/rtw89core\./rtw89_core_git\./g;
-               s/\brtw89usb\b/rtw89_usb_git/g' \
-            rtw89/Makefile > rtw89/Makefile.build
+          # 从内核 Makefile 提取 rtw89core-y 的所有 .o 文件列表
+          # 格式: rtw89core-y += foo.o  → 提取 foo.o
+          CORE_OBJS=$(grep -E '^rtw89core-[y+]' rtw89/Makefile | grep -oE '[a-zA-Z0-9_]+\.o' | tr '\n' ' ')
+          echo "Core objs: $CORE_OBJS"
 
-          # 添加 obj-m 声明（模块名映射到 iStoreOS 包的 _git 后缀名）
-          cat >> rtw89/Makefile.build << 'EXTRA'
+          cat > rtw89/Makefile.build << EOF
+          # out-of-tree Makefile for rtw89 with _git suffix module names
 
-          # === out-of-tree build targets (rename to match iStoreOS .ko names) ===
           obj-m += rtw89_core_git.o
           obj-m += rtw89_usb_git.o
           obj-m += rtw89_8922a_git.o
           obj-m += rtw89_8922au_git.o
-          rtw89_core_git-objs  := $(rtw89core-objs)
-          rtw89_usb_git-objs   := usb.o
-          rtw89_8922a_git-objs := rtw8922a.o rtw8922a_rfk.o
-          rtw89_8922au_git-objs := rtw8922au.o
-          EXTRA
+
+          rtw89_core_git-y := $CORE_OBJS
+          rtw89_usb_git-y := usb.o
+          rtw89_8922a_git-y := rtw8922a.o rtw8922a_rfk.o
+          rtw89_8922au_git-y := rtw8922au.o
+
+          ccflags-y := -DCONFIG_RTW89_DEBUG
+          EOF
 
           echo "=== Generated Makefile.build ==="
           cat rtw89/Makefile.build
@@ -155,19 +149,23 @@ jobs:
       # ── 8. 编译内核模块 ───────────────────────────────────────
       - name: Build rtw89 kernel modules
         run: |
-          # 使用内核 kbuild 系统编译，指定额外 Kconfig 选项
+          # 将生成的 Makefile.build 替换原 Makefile（保留备份）
+          cp rtw89/Makefile rtw89/Makefile.orig
+          cp rtw89/Makefile.build rtw89/Makefile
+
           make -C linux-6.6.119/.build \
                M="$(pwd)/rtw89" \
                ARCH=arm64 \
                CROSS_COMPILE=aarch64-linux-gnu- \
-               CONFIG_RTW89_CORE=m \
-               CONFIG_RTW89_USB=m \
-               CONFIG_RTW89_8922A=m \
-               CONFIG_RTW89_8922AE_2GHZ_USB=m \
-               CONFIG_RTW89_DEBUG=y \
+               KBUILD_MODPOST_WARN=1 \
                -j$(nproc) 2>&1 | tee /tmp/build.log
+
           echo "=== Build result ==="
-          find rtw89 -name "*.ko" -exec ls -lh {} \;
+          find rtw89 -name "*.ko" -exec ls -lh {} \; || {
+            echo "ERROR: no .ko built. Last 40 lines of build log:"
+            tail -40 /tmp/build.log
+            exit 1
+          }
 
       # ── 9. 重新打包为 .ipk ───────────────────────────────────
       - name: Repack into .ipk
