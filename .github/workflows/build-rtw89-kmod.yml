@@ -109,12 +109,16 @@ jobs:
 
       # ── 7. 编译内核模块 ───────────────────────────────────────
       #    morrownr/rtw89 Makefile 已有 obj-m += rtw89_*_git.o 定义
+      #    KBUILD_MODPOST_WARN=1: 将 undefined symbol 错误降为警告
+      #    （out-of-tree 构建时 Module.symvers 不含 mac80211/cfg80211 符号，属正常现象）
       - name: Build rtw89 kernel modules
         run: |
+          set -o pipefail
           make -C linux-6.6.119/.build \
                M="$(pwd)/rtw89" \
                ARCH=arm64 \
                CROSS_COMPILE=aarch64-linux-gnu- \
+               KBUILD_MODPOST_WARN=1 \
                -j$(nproc) 2>&1 | tee /tmp/build.log
 
           echo "=== Build result ==="
