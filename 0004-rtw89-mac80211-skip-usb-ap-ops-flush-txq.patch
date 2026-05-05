@@ -1,0 +1,87 @@
+From: rtw89-usb-ap-fix <local@patch>
+Date: 2026-05-05
+Subject: [PATCH 0004] rtw89: mac80211: skip MAC-level flush in ops_flush for USB AP
+
+The existing patch 0003 skips rtw89_mac_flush_txq() in the set_key
+DISABLE_KEY path for USB AP mode. However the identical timeout also
+fires from the ops_flush mac80211 callback, which mac80211 calls to
+drain a station's TX queue before removing it on every disconnect.
+
+With a USB HCI, the MAC DLE (Data Link Engine) cannot drain within the
+default 50 ms poll window.  The resulting "timed out to flush queues"
+leaves the DLE in an inconsistent state.  Over many connect/disconnect
+cycles (typically 1-3 days of continuous AP operation) the accumulated
+state corruption causes the AP to stop sending 802.11 beacons, making
+the SSID invisible to clients until the device is hard-rebooted.
+
+The HCI-level rtw89_hci_flush_queues() called just before is sufficient
+to prevent TX stalls.  Skip rtw89_mac_flush_txq() in ops_flush when the
+device is a USB adapter operating in AP mode, consistent with patch 0003.
+
+Additionally rename the single-use helper added in patch 0003 to the
+more generic rtw89_is_usb_ap() so it can be shared by both call sites
+without confusion.
+
+Symptoms fixed:
+  kern.info: rtw89_8922au_git 2-1:1.0: timed out to flush queues
+  (fired on every client disconnect; AP becomes invisible after 1-3 days)
+
+Tested-on: RTL8922AU (0bda:8912) USB3, iStoreOS aarch64, kernel 6.6.119
+Applies-after: 0003-rtw89-mac80211-skip-usb-ap-key-disable-flush.patch
+---
+ mac80211.c | 29 +++++++++++++++++++----------
+ 1 file changed, 19 insertions(+), 10 deletions(-)
+
+diff --git a/mac80211.c b/mac80211.c
+index e96126d..2d4a7f3 100644
+--- a/mac80211.c
++++ b/mac80211.c
+@@ -954,14 +954,16 @@ static int rtw89_ops_sta_state(struct ieee80211_hw *hw,
+ 	return __rtw89_ops_sta_state(hw, vif, sta, old_state, new_state);
+ }
+ 
+-static bool rtw89_ops_skip_usb_ap_key_disable_flush(struct rtw89_dev *rtwdev,
+-					       struct ieee80211_vif *vif)
++/*
++ * rtw89_is_usb_ap - true when running as USB adapter in AP mode.
++ * Shared guard for all MAC-level flush paths that reliably time out on
++ * USB because the DLE cannot drain within the 50 ms default window.
++ */
++static bool rtw89_is_usb_ap(struct rtw89_dev *rtwdev,
++			     struct ieee80211_vif *vif)
+ {
+ 	return rtwdev->hci.type == RTW89_HCI_TYPE_USB &&
+ 	       vif && vif->type == NL80211_IFTYPE_AP;
+ }
+ 
+ static int rtw89_ops_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
+@@ -984,7 +986,7 @@ static int rtw89_ops_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
+ 		/*
+ 		 * USB AP teardown frequently reaches key removal before the MAC
+ 		 * DLE fully drains. Skip the global queue flush in this path and
+ 		 * let station disconnect proceed instead of timing out here.
+ 		 */
+-		if (!rtw89_ops_skip_usb_ap_key_disable_flush(rtwdev, vif)) {
++		if (!rtw89_is_usb_ap(rtwdev, vif)) {
+ 			rtw89_hci_flush_queues(rtwdev, BIT(rtwdev->hw->queues) - 1,
+ 				       false);
+ 			rtw89_mac_flush_txq(rtwdev, BIT(rtwdev->hw->queues) - 1, false);
+@@ -1046,10 +1048,17 @@ static void rtw89_ops_flush(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+ {
+ 	struct rtw89_dev *rtwdev = hw->priv;
+ 
+ 	mutex_lock(&rtwdev->mutex);
+ 	rtw89_hci_flush_queues(rtwdev, queues, drop);
+-	rtw89_mac_flush_txq(rtwdev, queues, drop);
++	/*
++	 * mac80211 calls ops_flush on every station disconnect to drain the
++	 * station's TX queue.  On USB in AP mode the MAC DLE times out (50 ms
++	 * window too short for USB latency), leaving DLE state corrupted.
++	 * After many such disconnects the corruption accumulates until the AP
++	 * stops beaconing.  The HCI-level flush above is sufficient; skip the
++	 * MAC-level flush for USB AP vifs.
++	 */
++	if (!rtw89_is_usb_ap(rtwdev, vif))
++		rtw89_mac_flush_txq(rtwdev, queues, drop);
+ 	mutex_unlock(&rtwdev->mutex);
+ }

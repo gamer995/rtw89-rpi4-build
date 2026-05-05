@@ -1,0 +1,12 @@
+# 不上传大二进制文件
+*.ipk
+*.ko
+*.tar.gz
+*.tar.xz
+*.tar.zst
+
+# macOS 垃圾
+.DS_Store
+
+# 临时脚本
+/tmp/

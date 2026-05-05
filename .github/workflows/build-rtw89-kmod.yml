@@ -1,0 +1,221 @@
+name: Build rtw89-8922au kmod for iStoreOS RPi4
+
+# 手动触发，或推送 patch 文件时触发
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '*.patch'
+      - '.github/workflows/build-rtw89-kmod.yml'
+
+jobs:
+  build:
+    name: Compile rtw89 8922AU kernel module
+    runs-on: ubuntu-22.04
+
+    steps:
+      # ── 1. 拉取本仓库（含 patch 文件）──────────────────────────
+      - name: Checkout patches
+        uses: actions/checkout@v4
+
+      # ── 2. 安装依赖 ────────────────────────────────────────────
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            libelf-dev libssl-dev bc flex bison pahole \
+            git curl wget ca-certificates xz-utils
+
+      # ── 3. 下载并解压 Linux 6.6.119 内核源码（缓存友好）────────
+      - name: Cache Linux 6.6.119 source
+        id: cache-kernel
+        uses: actions/cache@v4
+        with:
+          path: linux-6.6.119
+          key: linux-6.6.119-source
+
+      - name: Download Linux 6.6.119
+        if: steps.cache-kernel.outputs.cache-hit != 'true'
+        run: |
+          wget -q https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.119.tar.xz
+          tar -xf linux-6.6.119.tar.xz
+          rm linux-6.6.119.tar.xz
+
+      # ── 4. 缓存编译好的内核头文件 ─────────────────────────────
+      - name: Cache prepared kernel build dir
+        id: cache-kbuild
+        uses: actions/cache@v4
+        with:
+          path: linux-6.6.119/.build
+          # key 含 config hash，config 变化时自动重建
+          key: linux-6.6.119-kbuild-v2
+
+      - name: Prepare kernel build dir (arm64, SMP, no modversions)
+        if: steps.cache-kbuild.outputs.cache-hit != 'true'
+        run: |
+          cd linux-6.6.119
+          # 生成 aarch64 基础配置，然后覆盖关键选项
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig O=.build
+          # 确保 vermagic = "6.6.119 SMP mod_unload aarch64"（与 iStoreOS 运行内核一致）
+          #   - SMP=y（defconfig 默认有）
+          #   - MODULE_UNLOAD=y
+          #   - MODVERSIONS=n（无 CRC 检查，跨编译器兼容）
+          #   - 不含 preempt（用 PREEMPT_NONE，defconfig 是 PREEMPT_DYNAMIC，需改）
+          scripts/config --file .build/.config \
+            --enable  CONFIG_MODULES \
+            --enable  CONFIG_MODULE_UNLOAD \
+            --disable CONFIG_MODVERSIONS \
+            --disable CONFIG_MODULE_SIG \
+            --disable CONFIG_PREEMPT \
+            --disable CONFIG_PREEMPT_DYNAMIC \
+            --enable  CONFIG_PREEMPT_NONE \
+            --enable  CONFIG_SMP \
+            --disable CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT \
+            --disable CONFIG_DEBUG_INFO_BTF
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+               O=.build olddefconfig
+          # 只生成 modules.builtin / Module.symvers 等编译元数据，不编译镜像
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+               O=.build modules_prepare -j$(nproc)
+
+      # ── 5. 克隆 rtw89 驱动源码 ────────────────────────────────
+      #    使用 linux-wireless 仓库中与 iStoreOS 匹配的驱动提交
+      - name: Cache rtw89 driver source
+        id: cache-rtw89
+        uses: actions/cache@v4
+        with:
+          path: rtw89
+          key: rtw89-driver-d2f175ea
+
+      - name: Clone rtw89 driver source
+        if: steps.cache-rtw89.outputs.cache-hit != 'true'
+        run: |
+          git clone --no-checkout https://git.kernel.org/pub/scm/linux/kernel/git/wireless/wireless.git rtw89-git
+          cd rtw89-git
+          git checkout d2f175ea -- drivers/net/wireless/realtek/rtw89/
+          mkdir -p ../rtw89
+          cp -r drivers/net/wireless/realtek/rtw89/. ../rtw89/
+          cd ..
+          rm -rf rtw89-git
+
+      # ── 6. 应用补丁 ───────────────────────────────────────────
+      - name: Apply patches
+        run: |
+          cd rtw89
+          # patch 0003: skip USB AP key-disable flush
+          if [ -f "../0003-rtw89-mac80211-skip-usb-ap-key-disable-flush.patch" ]; then
+            patch -p4 < "../0003-rtw89-mac80211-skip-usb-ap-key-disable-flush.patch"
+            echo "Applied patch 0003"
+          fi
+          # patch 0004: skip USB AP ops-flush txq (root cause fix)
+          if [ -f "../0004-rtw89-mac80211-skip-usb-ap-ops-flush-txq.patch" ]; then
+            patch -p4 < "../0004-rtw89-mac80211-skip-usb-ap-ops-flush-txq.patch"
+            echo "Applied patch 0004"
+          fi
+
+      # ── 7. 创建独立 Makefile（将 rtw89 目录编译为独立 KO）────
+      - name: Create out-of-tree Makefile
+        run: |
+          cat > rtw89/Makefile.standalone << 'MAKEFILE'
+          # --- rtw89 out-of-tree build Makefile ---
+          KDIR ?= ../linux-6.6.119/.build
+          CROSS_COMPILE ?= aarch64-linux-gnu-
+          ARCH ?= arm64
+
+          obj-m += rtw89_core_git.o
+          obj-m += rtw89_usb_git.o
+          obj-m += rtw89_8922a_git.o
+          obj-m += rtw89_8922au_git.o
+
+          # Map "git" suffix modules to their actual source objects
+          rtw89_core_git-y := core.o mac.o phy.o debug.o efuse.o fw.o hci.o \
+                              ps.o reg.o sar.o ser.o util.o acpi.o coex.o \
+                              lps.o rtc.o chan.o mac80211.o regd.o txrx.o \
+                              wow.o
+          rtw89_usb_git-y := usb.o
+          rtw89_8922a_git-y := rtw8922a.o rtw8922a_rfk.o
+          rtw89_8922au_git-y := rtw8922au.o
+
+          all:
+          	$(MAKE) -C $(KDIR) M=$(PWD) ARCH=$(ARCH) \
+          	        CROSS_COMPILE=$(CROSS_COMPILE) \
+          	        EXTRA_CFLAGS="-DCONFIG_RTW89_DEBUG -Wno-error" \
+          	        modules
+
+          clean:
+          	$(MAKE) -C $(KDIR) M=$(PWD) ARCH=$(ARCH) \
+          	        CROSS_COMPILE=$(CROSS_COMPILE) clean
+          MAKEFILE
+
+      # ── 8. 编译内核模块 ───────────────────────────────────────
+      - name: Build rtw89 kernel modules
+        run: |
+          cd rtw89
+          make -f Makefile.standalone KDIR=../linux-6.6.119/.build \
+               ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) 2>&1 | tee /tmp/build.log
+          echo "=== Built .ko files ==="
+          find . -name "*.ko" -exec ls -lh {} \;
+          echo "=== Vermagic check ==="
+          for ko in *.ko; do
+            echo "$ko:"
+            aarch64-linux-gnu-objdump -j .modinfo -s "$ko" 2>/dev/null | grep -A2 vermagic || true
+          done
+
+      # ── 9. 重新打包为 .ipk ───────────────────────────────────
+      - name: Repack into .ipk
+        run: |
+          set -e
+          KVER="6.6.119"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r4"
+          PKGNAME="kmod-rtw89-8922au-git"
+          ARCH="aarch64_cortex-a72"
+          OUTDIR="ipk-staging"
+
+          mkdir -p "$OUTDIR/lib/modules/$KVER"
+          cp rtw89/rtw89_core_git.ko  "$OUTDIR/lib/modules/$KVER/"
+          cp rtw89/rtw89_usb_git.ko   "$OUTDIR/lib/modules/$KVER/"
+          cp rtw89/rtw89_8922a_git.ko "$OUTDIR/lib/modules/$KVER/"
+          cp rtw89/rtw89_8922au_git.ko "$OUTDIR/lib/modules/$KVER/"
+
+          mkdir -p "$OUTDIR/CONTROL"
+          cat > "$OUTDIR/CONTROL/control" << EOF
+          Package: $PKGNAME
+          Version: $PKGVER
+          Depends: kernel (=$(KVER))
+          Architecture: $ARCH
+          Description: RTW89 8922AU Wi-Fi 7 USB driver (patched: 0003+0004 USB AP fix)
+          EOF
+
+          # 打包 data.tar.gz
+          pushd "$OUTDIR" > /dev/null
+          find lib -type f | sort | tar -czf ../data.tar.gz -T -
+          tar -czf ../control.tar.gz -C CONTROL .
+          popd > /dev/null
+
+          printf '2.0\n' > debian-binary
+          IPKFILE="${PKGNAME}_${PKGVER}_${ARCH}.ipk"
+          tar -czf "$IPKFILE" ./debian-binary ./control.tar.gz ./data.tar.gz
+          echo "Created: $IPKFILE ($(du -h "$IPKFILE" | cut -f1))"
+          echo "IPKFILE=$IPKFILE" >> "$GITHUB_ENV"
+
+      # ── 10. 上传 artifact ─────────────────────────────────────
+      - name: Upload .ipk artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kmod-rtw89-8922au-patched
+          path: "*.ipk"
+          retention-days: 14
+
+      - name: Show build summary
+        run: |
+          echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Kernel: 6.6.119 (arm64 SMP mod_unload aarch64)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Patches applied: 0003 + 0004 (USB AP ops-flush fix)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Output: $IPKFILE" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Install on RPi:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "scp $IPKFILE root@192.168.7.127:/tmp/" >> "$GITHUB_STEP_SUMMARY"
+          echo "ssh root@192.168.7.127 'opkg install --force-reinstall /tmp/$IPKFILE'" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

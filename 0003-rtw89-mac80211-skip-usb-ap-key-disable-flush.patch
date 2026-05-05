@@ -1,0 +1,39 @@
+diff --git a/mac80211.c b/mac80211.c
+index 132cbcb..e96126d 100644
+--- a/mac80211.c
++++ b/mac80211.c
+@@ -954,6 +954,13 @@ static int rtw89_ops_sta_state(struct ieee80211_hw *hw,
+ 	return __rtw89_ops_sta_state(hw, vif, sta, old_state, new_state);
+ }
+ 
++static bool rtw89_ops_skip_usb_ap_key_disable_flush(struct rtw89_dev *rtwdev,
++					       struct ieee80211_vif *vif)
++{
++	return rtwdev->hci.type == RTW89_HCI_TYPE_USB &&
++	       vif && vif->type == NL80211_IFTYPE_AP;
++}
++
+ static int rtw89_ops_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
+ 			     struct ieee80211_vif *vif,
+ 			     struct ieee80211_sta *sta,
+@@ -977,9 +984,18 @@ static int rtw89_ops_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
+ 		break;
+ 	case DISABLE_KEY:
+ 		flush_work(&rtwdev->txq_work);
+-		rtw89_hci_flush_queues(rtwdev, BIT(rtwdev->hw->queues) - 1,
++
++		/*
++		 * USB AP teardown frequently reaches key removal before the MAC
++		 * DLE fully drains. Skip the global queue flush in this path and
++		 * let station disconnect proceed instead of timing out here.
++		 */
++		if (!rtw89_ops_skip_usb_ap_key_disable_flush(rtwdev, vif)) {
++			rtw89_hci_flush_queues(rtwdev, BIT(rtwdev->hw->queues) - 1,
+ 				       false);
+-		rtw89_mac_flush_txq(rtwdev, BIT(rtwdev->hw->queues) - 1, false);
++			rtw89_mac_flush_txq(rtwdev, BIT(rtwdev->hw->queues) - 1, false);
++		}
++
+ 		ret = rtw89_cam_sec_key_del(rtwdev, vif, sta, key, true);
+ 		if (ret) {
+ 			rtw89_err(rtwdev, "failed to remove key from sec cam\n");

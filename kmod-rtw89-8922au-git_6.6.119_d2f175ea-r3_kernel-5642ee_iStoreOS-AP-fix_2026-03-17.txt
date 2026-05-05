@@ -1,0 +1,15 @@
+文件: kmod-rtw89-8922au-git_6.6.119_d2f175ea-r3_kernel-5642ee_iStoreOS-AP-fix_2026-03-17.ipk
+日期: 2026-03-17
+来源: 192.168.7.145 ~/openwrt-rtw89-build/repacked/
+原始包名: kmod-rtw89-8922au-git_6.6.119.2026.03.05~d2f175ea-r3+5642ee_aarch64_cortex-a72.ipk
+目标内核: 6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1
+适用设备: iStoreOS 192.168.8.127
+当前用途: RTL8922AU USB Wi-Fi 7 AP 驱动重编包
+关键变更: r3 本地补丁 + ABI 依赖修正
+运行备注:
+- OpenClash 保留运行
+- AP 当前可在 channel 36 / EHT80 启动
+- AP 端 hostapd 已开启 ieee80211be=1 / EHT
+- 当前手机实测曾协商到 HE，不等于客户端已实际跑在 EHT
+- 当前设备侧稳定参数为 disable_ps_mode=1, switch_usb_mode=1
+SHA256: 76ec2d4ef78bdfb1fe132c974b65d8492e5af79af801b73caf102c70adb7a807
