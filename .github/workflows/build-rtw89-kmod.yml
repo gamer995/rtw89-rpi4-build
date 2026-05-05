@@ -97,23 +97,19 @@ jobs:
       # ── 6. 应用补丁 ───────────────────────────────────────────
       - name: Apply patches
         run: |
-          # 检查 patch 的路径深度以匹配正确的 -p 值
-          # patch 文件的路径前缀一般是 a/drivers/net/wireless/realtek/rtw89/
-          # 从 rtw89/ 目录执行，去掉前 5 级: -p5
+          # patch 文件头格式：diff --git a/mac80211.c b/mac80211.c
+          # 即路径相对于 rtw89/ 目录，在该目录内执行 -p1 正确
           cd rtw89
-          echo "=== Available .c files ==="
-          ls *.c | head -5
 
           # patch 0003: skip USB AP key-disable flush
           if [ -f "../0003-rtw89-mac80211-skip-usb-ap-key-disable-flush.patch" ]; then
-            patch --dry-run -p5 < "../0003-rtw89-mac80211-skip-usb-ap-key-disable-flush.patch" 2>&1 | head -3
-            patch -p5 < "../0003-rtw89-mac80211-skip-usb-ap-key-disable-flush.patch" && echo "Applied patch 0003 (p5)" \
-              || { patch -p4 < "../0003-rtw89-mac80211-skip-usb-ap-key-disable-flush.patch" && echo "Applied patch 0003 (p4)"; }
+            patch -p1 < "../0003-rtw89-mac80211-skip-usb-ap-key-disable-flush.patch" \
+              && echo "Applied patch 0003" || { echo "FAILED patch 0003"; exit 1; }
           fi
           # patch 0004: skip USB AP ops-flush txq (root cause fix)
           if [ -f "../0004-rtw89-mac80211-skip-usb-ap-ops-flush-txq.patch" ]; then
-            patch -p5 < "../0004-rtw89-mac80211-skip-usb-ap-ops-flush-txq.patch" && echo "Applied patch 0004 (p5)" \
-              || { patch -p4 < "../0004-rtw89-mac80211-skip-usb-ap-ops-flush-txq.patch" && echo "Applied patch 0004 (p4)"; }
+            patch -p1 < "../0004-rtw89-mac80211-skip-usb-ap-ops-flush-txq.patch" \
+              && echo "Applied patch 0004" || { echo "FAILED patch 0004"; exit 1; }
           fi
 
       # ── 7. 生成 out-of-tree Makefile ─────────────────────────
