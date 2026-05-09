@@ -49,7 +49,7 @@ jobs:
         with:
           path: linux-6.6.119/.build
           # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v5
+          key: linux-6.6.119-kbuild-v6
 
       - name: Prepare kernel build dir (arm64, SMP, no modversions)
         if: steps.cache-kbuild.outputs.cache-hit != 'true'
@@ -73,6 +73,8 @@ jobs:
             --enable  CONFIG_SMP \
             --disable CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT \
             --disable CONFIG_DEBUG_INFO_BTF \
+            --disable CONFIG_VMAP_STACK \
+            --disable CONFIG_STACKTRACE \
             --disable CONFIG_KALLSYMS_ALL \
             --disable CONFIG_KALLSYMS \
             --disable CONFIG_KPROBES \
