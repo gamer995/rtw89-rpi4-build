@@ -49,7 +49,7 @@ jobs:
         with:
           path: linux-6.6.119/.build
           # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v3
+          key: linux-6.6.119-kbuild-v4
 
       - name: Prepare kernel build dir (arm64, SMP, no modversions)
         if: steps.cache-kbuild.outputs.cache-hit != 'true'
@@ -87,7 +87,8 @@ jobs:
             --disable CONFIG_BPF_EVENTS \
             --disable CONFIG_TREE_SRCU \
             --disable CONFIG_PRINTK_INDEX \
-            --disable CONFIG_FUNCTION_ERROR_INJECTION
+            --disable CONFIG_FUNCTION_ERROR_INJECTION \
+            --disable CONFIG_PERF_EVENTS
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
                O=.build olddefconfig
           # 对于被架构/Kconfig 依赖强制开启的选项，需要在 olddefconfig 后用 sed 强制关闭
