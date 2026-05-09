@@ -142,30 +142,18 @@ jobs:
           }
 
           echo "=== struct module size (.gnu.linkonce.this_module section) ==="
-          python3 - << 'PYEOF'
-import struct, glob
-for path in glob.glob("rtw89/*.ko"):
-    with open(path, 'rb') as f:
-        data = f.read()
-    e_shoff = struct.unpack_from('<Q', data, 40)[0]
-    e_shentsize = struct.unpack_from('<H', data, 58)[0]
-    e_shnum = struct.unpack_from('<H', data, 60)[0]
-    e_shstrndx = struct.unpack_from('<H', data, 62)[0]
-    sh_off = e_shoff + e_shstrndx * e_shentsize
-    strtab_off = struct.unpack_from('<Q', data, sh_off + 24)[0]
-    strtab_size = struct.unpack_from('<Q', data, sh_off + 32)[0]
-    strtab = data[strtab_off:strtab_off+strtab_size]
-    for i in range(e_shnum):
-        sh = e_shoff + i * e_shentsize
-        sh_name = struct.unpack_from('<I', data, sh)[0]
-        null_idx = strtab.index(b'\x00', sh_name)
-        name = strtab[sh_name:null_idx].decode()
-        if name == '.gnu.linkonce.this_module':
-            size = struct.unpack_from('<Q', data, sh + 32)[0]
-            status = "OK (matches iStoreOS)" if size == 832 else f"MISMATCH (iStoreOS expects 832/0x340)"
-            print(f"{path}: size={size} (0x{size:x}) -- {status}")
-            break
-PYEOF
+          for ko in rtw89/rtw89_core_git.ko rtw89/rtw89_usb_git.ko; do
+            if [ -f "$ko" ]; then
+              size_hex=$(aarch64-linux-gnu-objdump -h "$ko" 2>/dev/null \
+                | awk '/this_module/{print $3}')
+              size_dec=$(printf '%d' "0x${size_hex}" 2>/dev/null || echo "?")
+              if [ "$size_dec" = "832" ]; then
+                echo "$ko: size=${size_dec} (0x${size_hex}) -- OK matches iStoreOS"
+              else
+                echo "$ko: size=${size_dec} (0x${size_hex}) -- MISMATCH iStoreOS expects 832/0x340"
+              fi
+            fi
+          done
 
       # ── 8. 重新打包为 .ipk ───────────────────────────────────
       - name: Repack into .ipk
