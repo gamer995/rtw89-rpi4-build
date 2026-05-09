@@ -108,6 +108,8 @@ jobs:
           # 清理已有 .ko 文件，避免缓存命中时使用旧版本编译产物
           find rtw89 -name "*.ko" -delete
           python3 apply_patches.py
+          # 更新 mac80211.c 时间戳，确保 kbuild 增量编译能检测到变化
+          touch rtw89/mac80211.c
 
       # ── 7. 编译内核模块 ───────────────────────────────────────
       #    morrownr/rtw89 Makefile 已有 obj-m += rtw89_*_git.o 定义
@@ -135,7 +137,7 @@ jobs:
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r6"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r7"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
