@@ -120,20 +120,13 @@ jobs:
             tail -40 /tmp/build.log
             exit 1
           }
-          echo "=== mac80211.o md5 ==="
-          find rtw89 -name "mac80211.o" -exec md5sum {} \;
-          echo "=== rtw89_core_git.ko md5 and marker string check ==="
-          find rtw89 -name "rtw89_core_git.ko" -exec md5sum {} \;
-          find rtw89 -name "rtw89_core_git.ko" -exec sh -c 'strings "$1" | grep -c RTW89_USB_AP_PATCH_ACTIVE || echo "MARKER NOT IN KO"' _ {} \;
-          echo "=== rtw89-related files in kbuild cache dir ==="
-          find linux-6.6.119/.build -name "*rtw89*" 2>/dev/null | head -20 || echo "none found"
 
       # ── 8. 重新打包为 .ipk ───────────────────────────────────
       - name: Repack into .ipk
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r12"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r13"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
