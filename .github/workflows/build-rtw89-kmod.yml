@@ -122,13 +122,15 @@ jobs:
           }
           echo "=== mac80211.o md5 (confirms patched source was compiled) ==="
           find rtw89 -name "mac80211.o" -exec md5sum {} \;
+          echo "=== ALL rtw89_core_git.ko files found (check for stale copies in kbuild dir) ==="
+          find . -name "rtw89_core_git.ko" -exec ls -la {} \; -exec md5sum {} \;
 
       # ── 8. 重新打包为 .ipk ───────────────────────────────────
       - name: Repack into .ipk
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r9"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r10"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
