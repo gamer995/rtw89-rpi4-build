@@ -49,7 +49,7 @@ jobs:
         with:
           path: linux-6.6.119/.build
           # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v6
+          key: linux-6.6.119-kbuild-v7
 
       - name: Prepare kernel build dir (arm64, SMP, no modversions)
         if: steps.cache-kbuild.outputs.cache-hit != 'true'
@@ -91,11 +91,18 @@ jobs:
             --disable CONFIG_TREE_SRCU \
             --disable CONFIG_PRINTK_INDEX \
             --disable CONFIG_FUNCTION_ERROR_INJECTION \
-            --disable CONFIG_PERF_EVENTS
+            --disable CONFIG_PERF_EVENTS \
+            --disable CONFIG_PROFILING
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
                O=.build olddefconfig
-          # 对于被架构/Kconfig 依赖强制开启的选项，需要在 olddefconfig 后用 sed 强制关闭
-          # CONFIG_HAVE_STATIC_CALL_INLINE 是 arm64 架构 def_bool，通常无法禁用
+          # KALLSYMS 在 init/Kconfig 有 default y，STACKTRACE 被某个 arm64 select 链强制开启。
+          # iStoreOS 的 OpenWrt 构建系统不遵循 Kconfig select 链，直接覆盖。
+          # 这里模拟相同行为：在 olddefconfig 之后强制关闭，使 struct module 大小为 832 字节。
+          sed -i \
+            -e 's/^CONFIG_KALLSYMS=y$/# CONFIG_KALLSYMS is not set/' \
+            -e 's/^CONFIG_KALLSYMS_BASE_RELATIVE=y$/# CONFIG_KALLSYMS_BASE_RELATIVE is not set/' \
+            -e 's/^CONFIG_STACKTRACE=y$/# CONFIG_STACKTRACE is not set/' \
+            .build/.config
           # 验证实际的 struct module 相关配置结果
           echo "=== struct module size-affecting configs ==="
           grep -E "KALLSYMS|KPROBES|JUMP_LABEL|DYNAMIC_DEBUG|STACKTRACE|TRACEPOINTS|BPF_EVENTS|TREE_SRCU|TRACING=|EVENT_TRACING|FTRACE_MCOUNT|STATIC_CALL_INLINE|PRINTK_INDEX|FUNCTION_ERROR" .build/.config | sort
@@ -174,7 +181,7 @@ jobs:
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r14"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r15"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
