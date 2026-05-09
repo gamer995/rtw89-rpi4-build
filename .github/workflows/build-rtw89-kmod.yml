@@ -49,7 +49,7 @@ jobs:
         with:
           path: linux-6.6.119/.build
           # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v10
+          key: linux-6.6.119-kbuild-v11
 
       - name: Prepare kernel build dir (arm64, SMP, no modversions)
         if: steps.cache-kbuild.outputs.cache-hit != 'true'
@@ -98,10 +98,12 @@ jobs:
           # 只生成 modules.builtin / Module.symvers 等编译元数据，不编译镜像
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
                O=.build modules_prepare -j$(nproc)
-          # 分析：通过 ELF 重定位分析确认 iStoreOS struct module 布局（init@312, exit@608, total=832）：
-          #   MODULES_TREE_LOOKUP=n → mem[7]=112字节；TRACEPOINTS=y；TREE_SRCU=y；mod_arch_specific=32字节
-          #   而我们有 PERF_EVENTS=y → MODULES_TREE_LOOKUP=y → mem[7]=504字节（过大+392字节）
-          # 修复：从 autoconf.h 中移除多余 #define，同时加上 iStoreOS 有的 TRACEPOINTS。
+          # 修复：从 autoconf.h 中移除 iStoreOS 内核没有的功能定义，避免链接到不存在的符号。
+          # kbuild-v10 已解决 struct module 大小（640 字节匹配 iStoreOS）。
+          # kbuild-v11 额外移除 ACPI/DMI/RFKILL，因为 iStoreOS bcm2711 内核没有这些：
+          #   - acpi_evaluate_object 不在 iStoreOS 内核（无 ACPI 支持，ARM/RPi 用设备树）
+          #   - dmi_first_match 不在 iStoreOS 内核（无 DMI 支持）
+          #   - rfkill_pause_polling 不在 iStoreOS 内核（rfkill 核心未内置）
           AUTOCONF=".build/include/generated/autoconf.h"
           sed -i \
             -e '/^#define CONFIG_KALLSYMS /d' \
@@ -111,6 +113,11 @@ jobs:
             -e '/^#define CONFIG_PERF_EVENTS /d' \
             -e '/^#define CONFIG_GUEST_PERF_EVENTS /d' \
             -e '/^#define CONFIG_HW_PERF_EVENTS /d' \
+            -e '/^#define CONFIG_ACPI /d' \
+            -e '/^#define CONFIG_DMI /d' \
+            -e '/^#define CONFIG_RFKILL_MODULE /d' \
+            -e '/^#define CONFIG_RFKILL_INPUT /d' \
+            -e '/^#define CONFIG_RFKILL_LEDS /d' \
             "$AUTOCONF"
           # iStoreOS 有 TRACEPOINTS=y（tracepoint_probe_register 在 kallsyms 中确认）
           printf '\n#define CONFIG_TRACEPOINTS 1\n' >> "$AUTOCONF"
