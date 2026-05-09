@@ -49,7 +49,7 @@ jobs:
         with:
           path: linux-6.6.119/.build
           # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v11
+          key: linux-6.6.119-kbuild-v12
 
       - name: Prepare kernel build dir (arm64, SMP, no modversions)
         if: steps.cache-kbuild.outputs.cache-hit != 'true'
@@ -123,6 +123,21 @@ jobs:
           printf '\n#define CONFIG_TRACEPOINTS 1\n' >> "$AUTOCONF"
           echo "=== autoconf.h: struct-module relevant defines after patch ==="
           grep -E "KALLSYMS|STACKTRACE|MODULES_TREE|PERF_EVENTS|TRACEPOINTS|TREE_SRCU" "$AUTOCONF" | sort
+
+          # ── 修复 struct ieee80211_ops 布局不匹配 ─────────────────────────
+          # iStoreOS mac80211 = kmod-mac80211 6.6.119.6.12.61-r1（backports-6.12.61）
+          # backports-6.12.61 在 struct ieee80211_ops 中新增了 3 个字段：
+          #   vif_add_debugfs (位置 35), can_activate_links (位置 120), can_neg_ttlm (末尾)
+          # 若用 kernel 6.6.119 的 mac80211.h 编译，wake_tx_queue 偏移错误导致 WARN+NULL。
+          # 解决方案：用 backports-6.12.61 的 mac80211.h 替换 kbuild 中的版本。
+          echo "=== Replacing mac80211.h with backports-6.12.61 version ==="
+          wget -q http://mirror2.openwrt.org/sources/backports-6.12.61.tar.xz -O /tmp/backports.tar.xz
+          tar -xJf /tmp/backports.tar.xz -C /tmp \
+            backports-6.12.61/include/net/mac80211.h
+          cp /tmp/backports-6.12.61/include/net/mac80211.h .build/include/net/mac80211.h
+          echo "Replaced: .build/include/net/mac80211.h (backports-6.12.61)"
+          grep -c "vif_add_debugfs" .build/include/net/mac80211.h
+
           # 备份最终状态供诊断
           cp .build/.config /tmp/kbuild-final.config
           cp "$AUTOCONF" /tmp/kbuild-autoconf.h
@@ -185,10 +200,10 @@ jobs:
               size_hex=$(aarch64-linux-gnu-objdump -h "$ko" 2>/dev/null \
                 | awk '/this_module/{print $3}')
               size_dec=$(printf '%d' "0x${size_hex}" 2>/dev/null || echo "?")
-              if [ "$size_dec" = "832" ]; then
+              if [ "$size_dec" = "640" ]; then
                 echo "$ko: size=${size_dec} (0x${size_hex}) -- OK matches iStoreOS"
               else
-                echo "$ko: size=${size_dec} (0x${size_hex}) -- MISMATCH iStoreOS expects 832/0x340"
+                echo "$ko: size=${size_dec} (0x${size_hex}) -- MISMATCH iStoreOS expects 640/0x280"
               fi
             fi
           done
@@ -198,7 +213,7 @@ jobs:
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r17"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r18"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
