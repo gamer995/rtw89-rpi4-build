@@ -49,7 +49,7 @@ jobs:
         with:
           path: linux-6.6.119/.build
           # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v2
+          key: linux-6.6.119-kbuild-v3
 
       - name: Prepare kernel build dir (arm64, SMP, no modversions)
         if: steps.cache-kbuild.outputs.cache-hit != 'true'
@@ -58,10 +58,10 @@ jobs:
           # 生成 aarch64 基础配置，然后覆盖关键选项
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig O=.build
           # 确保 vermagic = "6.6.119 SMP mod_unload aarch64"（与 iStoreOS 运行内核一致）
-          #   - SMP=y（defconfig 默认有）
-          #   - MODULE_UNLOAD=y
-          #   - MODVERSIONS=n（无 CRC 检查，跨编译器兼容）
-          #   - 不含 preempt（用 PREEMPT_NONE，defconfig 是 PREEMPT_DYNAMIC，需改）
+          # 同时禁用会扩大 struct module 大小的选项，使其与 iStoreOS 的 832 字节相匹配。
+          # iStoreOS (OpenWrt) generic/config-6.6 明确禁用了：
+          #   KALLSYMS, KPROBES, JUMP_LABEL, DYNAMIC_DEBUG_CORE, STACKTRACE_BUILD_ID
+          # iStoreOS 不开启 FTRACE/TRACING 相关选项（arm64 defconfig 默认开启）
           scripts/config --file .build/.config \
             --enable  CONFIG_MODULES \
             --enable  CONFIG_MODULE_UNLOAD \
@@ -72,9 +72,29 @@ jobs:
             --enable  CONFIG_PREEMPT_NONE \
             --enable  CONFIG_SMP \
             --disable CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT \
-            --disable CONFIG_DEBUG_INFO_BTF
+            --disable CONFIG_DEBUG_INFO_BTF \
+            --disable CONFIG_KALLSYMS \
+            --disable CONFIG_KPROBES \
+            --disable CONFIG_JUMP_LABEL \
+            --disable CONFIG_DYNAMIC_DEBUG \
+            --disable CONFIG_DYNAMIC_DEBUG_CORE \
+            --disable CONFIG_STACKTRACE_BUILD_ID \
+            --disable CONFIG_FTRACE \
+            --disable CONFIG_FUNCTION_TRACER \
+            --disable CONFIG_TRACING \
+            --disable CONFIG_EVENT_TRACING \
+            --disable CONFIG_TRACEPOINTS \
+            --disable CONFIG_BPF_EVENTS \
+            --disable CONFIG_TREE_SRCU \
+            --disable CONFIG_PRINTK_INDEX \
+            --disable CONFIG_FUNCTION_ERROR_INJECTION
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
                O=.build olddefconfig
+          # 对于被架构/Kconfig 依赖强制开启的选项，需要在 olddefconfig 后用 sed 强制关闭
+          # CONFIG_HAVE_STATIC_CALL_INLINE 是 arm64 架构 def_bool，通常无法禁用
+          # 验证实际的 struct module 相关配置结果
+          echo "=== struct module size-affecting configs ==="
+          grep -E "KALLSYMS|KPROBES|JUMP_LABEL|DYNAMIC_DEBUG|STACKTRACE|TRACEPOINTS|BPF_EVENTS|TREE_SRCU|TRACING=|EVENT_TRACING|FTRACE_MCOUNT|STATIC_CALL_INLINE|PRINTK_INDEX|FUNCTION_ERROR" .build/.config | sort
           # 只生成 modules.builtin / Module.symvers 等编译元数据，不编译镜像
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
                O=.build modules_prepare -j$(nproc)
@@ -121,12 +141,38 @@ jobs:
             exit 1
           }
 
+          echo "=== struct module size (.gnu.linkonce.this_module section) ==="
+          python3 - << 'PYEOF'
+import struct, glob
+for path in glob.glob("rtw89/*.ko"):
+    with open(path, 'rb') as f:
+        data = f.read()
+    e_shoff = struct.unpack_from('<Q', data, 40)[0]
+    e_shentsize = struct.unpack_from('<H', data, 58)[0]
+    e_shnum = struct.unpack_from('<H', data, 60)[0]
+    e_shstrndx = struct.unpack_from('<H', data, 62)[0]
+    sh_off = e_shoff + e_shstrndx * e_shentsize
+    strtab_off = struct.unpack_from('<Q', data, sh_off + 24)[0]
+    strtab_size = struct.unpack_from('<Q', data, sh_off + 32)[0]
+    strtab = data[strtab_off:strtab_off+strtab_size]
+    for i in range(e_shnum):
+        sh = e_shoff + i * e_shentsize
+        sh_name = struct.unpack_from('<I', data, sh)[0]
+        null_idx = strtab.index(b'\x00', sh_name)
+        name = strtab[sh_name:null_idx].decode()
+        if name == '.gnu.linkonce.this_module':
+            size = struct.unpack_from('<Q', data, sh + 32)[0]
+            status = "OK (matches iStoreOS)" if size == 832 else f"MISMATCH (iStoreOS expects 832/0x340)"
+            print(f"{path}: size={size} (0x{size:x}) -- {status}")
+            break
+PYEOF
+
       # ── 8. 重新打包为 .ipk ───────────────────────────────────
       - name: Repack into .ipk
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r13"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r14"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
