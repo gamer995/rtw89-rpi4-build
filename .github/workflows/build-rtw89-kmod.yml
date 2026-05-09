@@ -138,27 +138,14 @@ jobs:
             /tmp/kbuild-autoconf.h
           retention-days: 3
 
-      # ── 4c. 替换 mac80211.h（每次构建都运行，不受 kbuild 缓存影响）────
+      # ── 4c. 向 mac80211.h 添加 backports-6.12.61 新增字段（每次都运行）────
       # iStoreOS mac80211 = kmod-mac80211 6.6.119.6.12.61-r1（backports-6.12.61）
       # backports-6.12.61 在 struct ieee80211_ops 中新增了 3 个字段：
       #   vif_add_debugfs (位置 35), can_activate_links (位置 120), can_neg_ttlm (末尾)
       # 若用 kernel 6.6.119 的 mac80211.h 编译，wake_tx_queue 偏移错误导致 WARN+NULL。
-      # 解决方案：用 backports-6.12.61 的 mac80211.h 替换内核源树中的版本。
-      # 此步骤必须在 kbuild 缓存步骤之外，确保缓存命中时也能正确替换。
-      - name: Replace mac80211.h with backports-6.12.61 version
-        run: |
-          wget -q http://mirror2.openwrt.org/sources/backports-6.12.61.tar.xz -O /tmp/backports.tar.xz
-          tar -xJf /tmp/backports.tar.xz -C /tmp backports-6.12.61/include/net/mac80211.h
-          cp /tmp/backports-6.12.61/include/net/mac80211.h linux-6.6.119/include/net/mac80211.h
-          echo "Replaced: linux-6.6.119/include/net/mac80211.h (backports-6.12.61)"
-          echo "vif_add_debugfs count: $(grep -c vif_add_debugfs linux-6.6.119/include/net/mac80211.h)"
-          # linux/unaligned.h 在 kernel 6.12+ 才存在；backports mac80211.h 需要它。
-          # 为 6.6.119 创建兼容 stub（6.6 用 asm/unaligned.h 提供相同的 API）。
-          if [ ! -f linux-6.6.119/include/linux/unaligned.h ]; then
-            printf '#ifndef _LINUX_UNALIGNED_COMPAT_H\n#define _LINUX_UNALIGNED_COMPAT_H\n#include <asm/unaligned.h>\n#endif\n' \
-              > linux-6.6.119/include/linux/unaligned.h
-            echo "Created linux/unaligned.h compat stub"
-          fi
+      # 修复：只添加缺少的字段，不替换整个文件（保持 6.6 API 兼容性）。
+      - name: Patch mac80211.h with backports-6.12.61 new ops fields
+        run: python3 patch_mac80211.py linux-6.6.119/include/net/mac80211.h
 
       # ── 5. 克隆 morrownr/rtw89 驱动（固定到 d2f175ea 提交）────
       #    每次都新鲜 clone，避免缓存包含旧的编译产物（.o/.a/.ko）
