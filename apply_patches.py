@@ -6,7 +6,7 @@ with open('rtw89/mac80211.c', 'r') as f:
 orig = src
 
 ANCHOR = '\treturn __rtw89_ops_sta_state(hw, vif, sta, old_state, new_state);\n}\n\nstatic int rtw89_ops_set_key'
-HELPER = '\treturn __rtw89_ops_sta_state(hw, vif, sta, old_state, new_state);\n}\n\nstatic bool rtw89_is_usb_ap(struct rtw89_dev *rtwdev,\n\t\t\t     struct ieee80211_vif *vif)\n{\n\treturn rtwdev->hci.type == RTW89_HCI_TYPE_USB &&\n\t       vif && vif->type == NL80211_IFTYPE_AP;\n}\n\nstatic int rtw89_ops_set_key'
+HELPER = '\treturn __rtw89_ops_sta_state(hw, vif, sta, old_state, new_state);\n}\n\nstatic bool rtw89_is_usb_ap(struct rtw89_dev *rtwdev,\n\t\t\t     struct ieee80211_vif *vif)\n{\n\tif (rtwdev->hci.type != RTW89_HCI_TYPE_USB)\n\t\treturn false;\n\t/* vif==NULL means global flush; skip mac flush for all USB in AP mode */\n\tif (!vif)\n\t\treturn true;\n\treturn vif->type == NL80211_IFTYPE_AP;\n}\n\nstatic int rtw89_ops_set_key'
 
 if 'rtw89_is_usb_ap' in src:
     print('helper already present')

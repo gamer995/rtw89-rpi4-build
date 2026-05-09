@@ -133,7 +133,7 @@ jobs:
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r4"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r5"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"

@@ -9,8 +9,12 @@ index 132cbcb..e96126d 100644
 +static bool rtw89_ops_skip_usb_ap_key_disable_flush(struct rtw89_dev *rtwdev,
 +					       struct ieee80211_vif *vif)
 +{
-+	return rtwdev->hci.type == RTW89_HCI_TYPE_USB &&
-+	       vif && vif->type == NL80211_IFTYPE_AP;
++	if (rtwdev->hci.type != RTW89_HCI_TYPE_USB)
++		return false;
++	/* vif==NULL means global flush; skip mac flush for all USB in AP mode */
++	if (!vif)
++		return true;
++	return vif->type == NL80211_IFTYPE_AP;
 +}
 +
  static int rtw89_ops_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
