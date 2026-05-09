@@ -152,6 +152,13 @@ jobs:
           cp /tmp/backports-6.12.61/include/net/mac80211.h linux-6.6.119/include/net/mac80211.h
           echo "Replaced: linux-6.6.119/include/net/mac80211.h (backports-6.12.61)"
           echo "vif_add_debugfs count: $(grep -c vif_add_debugfs linux-6.6.119/include/net/mac80211.h)"
+          # linux/unaligned.h 在 kernel 6.12+ 才存在；backports mac80211.h 需要它。
+          # 为 6.6.119 创建兼容 stub（6.6 用 asm/unaligned.h 提供相同的 API）。
+          if [ ! -f linux-6.6.119/include/linux/unaligned.h ]; then
+            printf '#ifndef _LINUX_UNALIGNED_COMPAT_H\n#define _LINUX_UNALIGNED_COMPAT_H\n#include <asm/unaligned.h>\n#endif\n' \
+              > linux-6.6.119/include/linux/unaligned.h
+            echo "Created linux/unaligned.h compat stub"
+          fi
 
       # ── 5. 克隆 morrownr/rtw89 驱动（固定到 d2f175ea 提交）────
       #    每次都新鲜 clone，避免缓存包含旧的编译产物（.o/.a/.ko）
