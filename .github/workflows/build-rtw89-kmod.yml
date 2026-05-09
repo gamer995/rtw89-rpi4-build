@@ -124,13 +124,15 @@ jobs:
           find rtw89 -name "mac80211.o" -exec md5sum {} \;
           echo "=== ALL rtw89_core_git.ko files found (check for stale copies in kbuild dir) ==="
           find . -name "rtw89_core_git.ko" -exec ls -la {} \; -exec md5sum {} \;
+          echo "=== rtw89-related files in kbuild cache dir ==="
+          find linux-6.6.119/.build -name "*rtw89*" 2>/dev/null | head -20 || echo "none found"
 
       # ── 8. 重新打包为 .ipk ───────────────────────────────────
       - name: Repack into .ipk
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r10"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r11"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
