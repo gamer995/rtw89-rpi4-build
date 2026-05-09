@@ -49,7 +49,7 @@ jobs:
         with:
           path: linux-6.6.119/.build
           # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v9
+          key: linux-6.6.119-kbuild-v10
 
       - name: Prepare kernel build dir (arm64, SMP, no modversions)
         if: steps.cache-kbuild.outputs.cache-hit != 'true'
@@ -102,6 +102,7 @@ jobs:
           #   MODULES_TREE_LOOKUP=n → mem[7]=112字节；TRACEPOINTS=y；TREE_SRCU=y；mod_arch_specific=32字节
           #   而我们有 PERF_EVENTS=y → MODULES_TREE_LOOKUP=y → mem[7]=504字节（过大+392字节）
           # 修复：从 autoconf.h 中移除多余 #define，同时加上 iStoreOS 有的 TRACEPOINTS。
+          AUTOCONF=".build/include/generated/autoconf.h"
           sed -i \
             -e '/^#define CONFIG_KALLSYMS /d' \
             -e '/^#define CONFIG_KALLSYMS_BASE_RELATIVE /d' \
