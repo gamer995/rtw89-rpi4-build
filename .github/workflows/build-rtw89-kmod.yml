@@ -49,7 +49,7 @@ jobs:
         with:
           path: linux-6.6.119/.build
           # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v4
+          key: linux-6.6.119-kbuild-v5
 
       - name: Prepare kernel build dir (arm64, SMP, no modversions)
         if: steps.cache-kbuild.outputs.cache-hit != 'true'
@@ -73,6 +73,7 @@ jobs:
             --enable  CONFIG_SMP \
             --disable CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT \
             --disable CONFIG_DEBUG_INFO_BTF \
+            --disable CONFIG_KALLSYMS_ALL \
             --disable CONFIG_KALLSYMS \
             --disable CONFIG_KPROBES \
             --disable CONFIG_JUMP_LABEL \
@@ -99,6 +100,16 @@ jobs:
           # 只生成 modules.builtin / Module.symvers 等编译元数据，不编译镜像
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
                O=.build modules_prepare -j$(nproc)
+          # 备份最终 .config 供 artifact 下载
+          cp .build/.config /tmp/kbuild-final.config
+
+      # ── 4b. 上传 .config 供诊断 ────────────────────────────────
+      - name: Upload final .config as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kbuild-dotconfig
+          path: /tmp/kbuild-final.config
+          retention-days: 3
 
       # ── 5. 克隆 morrownr/rtw89 驱动（固定到 d2f175ea 提交）────
       #    每次都新鲜 clone，避免缓存包含旧的编译产物（.o/.a/.ko）
