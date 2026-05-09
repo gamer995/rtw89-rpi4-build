@@ -49,7 +49,7 @@ jobs:
         with:
           path: linux-6.6.119/.build
           # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v12
+          key: linux-6.6.119-kbuild-v13
 
       - name: Prepare kernel build dir (arm64, SMP, no modversions)
         if: steps.cache-kbuild.outputs.cache-hit != 'true'
@@ -87,6 +87,7 @@ jobs:
             --disable CONFIG_TRACING \
             --disable CONFIG_EVENT_TRACING \
             --disable CONFIG_TRACEPOINTS \
+            --disable CONFIG_IPV6 \
             --disable CONFIG_BPF_EVENTS \
             --disable CONFIG_TREE_SRCU \
             --disable CONFIG_PRINTK_INDEX \
@@ -122,7 +123,7 @@ jobs:
           # iStoreOS 有 TRACEPOINTS=y（tracepoint_probe_register 在 kallsyms 中确认）
           printf '\n#define CONFIG_TRACEPOINTS 1\n' >> "$AUTOCONF"
           echo "=== autoconf.h: struct-module relevant defines after patch ==="
-          grep -E "KALLSYMS|STACKTRACE|MODULES_TREE|PERF_EVENTS|TRACEPOINTS|TREE_SRCU" "$AUTOCONF" | sort
+          grep -E "KALLSYMS|STACKTRACE|MODULES_TREE|PERF_EVENTS|TRACEPOINTS|TREE_SRCU|IPV6" "$AUTOCONF" | sort
 
           # 备份最终状态供诊断
           cp .build/.config /tmp/kbuild-final.config
@@ -137,15 +138,6 @@ jobs:
             /tmp/kbuild-final.config
             /tmp/kbuild-autoconf.h
           retention-days: 3
-
-      # ── 4c. 向 mac80211.h 添加 backports-6.12.61 新增字段（每次都运行）────
-      # iStoreOS mac80211 = kmod-mac80211 6.6.119.6.12.61-r1（backports-6.12.61）
-      # backports-6.12.61 在 struct ieee80211_ops 中新增了 3 个字段：
-      #   vif_add_debugfs (位置 35), can_activate_links (位置 120), can_neg_ttlm (末尾)
-      # 若用 kernel 6.6.119 的 mac80211.h 编译，wake_tx_queue 偏移错误导致 WARN+NULL。
-      # 修复：只添加缺少的字段，不替换整个文件（保持 6.6 API 兼容性）。
-      - name: Patch mac80211.h with backports-6.12.61 new ops fields
-        run: python3 patch_mac80211.py linux-6.6.119/include/net/mac80211.h
 
       # ── 5. 克隆 morrownr/rtw89 驱动（固定到 d2f175ea 提交）────
       #    每次都新鲜 clone，避免缓存包含旧的编译产物（.o/.a/.ko）
@@ -208,7 +200,7 @@ jobs:
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r18"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r19"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
