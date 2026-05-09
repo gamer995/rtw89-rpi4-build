@@ -49,7 +49,7 @@ jobs:
         with:
           path: linux-6.6.119/.build
           # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v7
+          key: linux-6.6.119-kbuild-v8
 
       - name: Prepare kernel build dir (arm64, SMP, no modversions)
         if: steps.cache-kbuild.outputs.cache-hit != 'true'
@@ -95,29 +95,35 @@ jobs:
             --disable CONFIG_PROFILING
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
                O=.build olddefconfig
-          # KALLSYMS 在 init/Kconfig 有 default y，STACKTRACE 被某个 arm64 select 链强制开启。
-          # iStoreOS 的 OpenWrt 构建系统不遵循 Kconfig select 链，直接覆盖。
-          # 这里模拟相同行为：在 olddefconfig 之后强制关闭，使 struct module 大小为 832 字节。
-          sed -i \
-            -e 's/^CONFIG_KALLSYMS=y$/# CONFIG_KALLSYMS is not set/' \
-            -e 's/^CONFIG_KALLSYMS_BASE_RELATIVE=y$/# CONFIG_KALLSYMS_BASE_RELATIVE is not set/' \
-            -e 's/^CONFIG_STACKTRACE=y$/# CONFIG_STACKTRACE is not set/' \
-            .build/.config
-          # 验证实际的 struct module 相关配置结果
-          echo "=== struct module size-affecting configs ==="
-          grep -E "KALLSYMS|KPROBES|JUMP_LABEL|DYNAMIC_DEBUG|STACKTRACE|TRACEPOINTS|BPF_EVENTS|TREE_SRCU|TRACING=|EVENT_TRACING|FTRACE_MCOUNT|STATIC_CALL_INLINE|PRINTK_INDEX|FUNCTION_ERROR" .build/.config | sort
           # 只生成 modules.builtin / Module.symvers 等编译元数据，不编译镜像
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
                O=.build modules_prepare -j$(nproc)
-          # 备份最终 .config 供 artifact 下载
+          # modules_prepare 内部会重跑 syncconfig，重新应用 Kconfig select 链，
+          # 导致 KALLSYMS=y / STACKTRACE=y 被还原（default y + arm64 select 链）。
+          # iStoreOS 的 OpenWrt 构建系统不遵循 select 链，直接覆盖 config。
+          # 这里的关键修复点是 autoconf.h——这是 .ko 编译时真正读取的头文件。
+          # 删除这些 #define 后，struct module 不再包含 kallsyms/stacktrace 字段，
+          # 使大小与 iStoreOS 的 832 字节匹配。
+          AUTOCONF=.build/include/generated/autoconf.h
+          sed -i \
+            -e '/^#define CONFIG_KALLSYMS /d' \
+            -e '/^#define CONFIG_KALLSYMS_BASE_RELATIVE /d' \
+            -e '/^#define CONFIG_STACKTRACE /d' \
+            "$AUTOCONF"
+          echo "=== autoconf.h: KALLSYMS/STACKTRACE after patch ==="
+          grep -E "KALLSYMS|STACKTRACE" "$AUTOCONF" || echo "(none — correctly removed)"
+          # 备份最终状态供诊断
           cp .build/.config /tmp/kbuild-final.config
+          cp "$AUTOCONF" /tmp/kbuild-autoconf.h
 
-      # ── 4b. 上传 .config 供诊断 ────────────────────────────────
+      # ── 4b. 上传 .config 和 autoconf.h 供诊断 ─────────────────
       - name: Upload final .config as artifact
         uses: actions/upload-artifact@v4
         with:
           name: kbuild-dotconfig
-          path: /tmp/kbuild-final.config
+          path: |
+            /tmp/kbuild-final.config
+            /tmp/kbuild-autoconf.h
           retention-days: 3
 
       # ── 5. 克隆 morrownr/rtw89 驱动（固定到 d2f175ea 提交）────
@@ -181,7 +187,7 @@ jobs:
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r15"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r16"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
