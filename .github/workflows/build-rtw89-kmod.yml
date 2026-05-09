@@ -105,6 +105,8 @@ jobs:
         run: |
           # 确保 mac80211.c 是未打补丁的原始版本（缓存命中时可能已打过补丁）
           git -C rtw89 checkout -- mac80211.c
+          # 清理已有 .ko 文件，避免缓存命中时使用旧版本编译产物
+          find rtw89 -name "*.ko" -delete
           python3 apply_patches.py
 
       # ── 7. 编译内核模块 ───────────────────────────────────────
@@ -133,7 +135,7 @@ jobs:
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r5"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r6"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
