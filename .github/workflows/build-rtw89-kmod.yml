@@ -134,9 +134,10 @@ jobs:
           wget -q http://mirror2.openwrt.org/sources/backports-6.12.61.tar.xz -O /tmp/backports.tar.xz
           tar -xJf /tmp/backports.tar.xz -C /tmp \
             backports-6.12.61/include/net/mac80211.h
-          cp /tmp/backports-6.12.61/include/net/mac80211.h .build/include/net/mac80211.h
-          echo "Replaced: .build/include/net/mac80211.h (backports-6.12.61)"
-          grep -c "vif_add_debugfs" .build/include/net/mac80211.h
+          # mac80211.h 在内核源树（非 kbuild 输出目录）
+          cp /tmp/backports-6.12.61/include/net/mac80211.h include/net/mac80211.h
+          echo "Replaced: linux-6.6.119/include/net/mac80211.h (backports-6.12.61)"
+          grep -c "vif_add_debugfs" include/net/mac80211.h
 
           # 备份最终状态供诊断
           cp .build/.config /tmp/kbuild-final.config
