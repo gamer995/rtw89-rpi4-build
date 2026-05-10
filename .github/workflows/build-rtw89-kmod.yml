@@ -49,7 +49,7 @@ jobs:
         with:
           path: linux-6.6.119/.build
           # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v16
+          key: linux-6.6.119-kbuild-v17
 
       - name: Prepare kernel build dir (arm64, SMP, no modversions)
         if: steps.cache-kbuild.outputs.cache-hit != 'true'
@@ -87,8 +87,7 @@ jobs:
             --disable CONFIG_TRACING \
             --disable CONFIG_EVENT_TRACING \
             --disable CONFIG_TRACEPOINTS \
-            --enable  CONFIG_MAC80211_DEBUGFS \
-            --disable CONFIG_NL80211_TESTMODE \
+            --disable CONFIG_IPV6 \
             --disable CONFIG_BPF_EVENTS \
             --disable CONFIG_TREE_SRCU \
             --disable CONFIG_PRINTK_INDEX \
@@ -139,15 +138,6 @@ jobs:
             /tmp/kbuild-final.config
             /tmp/kbuild-autoconf.h
           retention-days: 3
-
-      # ── 4c. 修正 mac80211.h：添加 vif_add_debugfs 字段 ─────────
-      # iStoreOS mac80211.ko 使用 backports-6.12.61 编译，比 6.6.119 多一个
-      # vif_add_debugfs (位于 link_add_debugfs 之前)。只添加这一个缺失字段，
-      # 配合 NL80211_TESTMODE=n，使 struct ieee80211_ops 布局完全匹配。
-      # 注意：不再添加 can_activate_links / can_neg_ttlm（rtw89 通过
-      # LINUX_VERSION_CODE 条件编译正确处理了这些字段）。
-      - name: Patch mac80211.h — add vif_add_debugfs
-        run: python3 patch_mac80211.py linux-6.6.119/include/net/mac80211.h
 
       # ── 5. 克隆 morrownr/rtw89 驱动（固定到 d2f175ea 提交）────
       #    每次都新鲜 clone，避免缓存包含旧的编译产物（.o/.a/.ko）
@@ -210,7 +200,7 @@ jobs:
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r22"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r23"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
