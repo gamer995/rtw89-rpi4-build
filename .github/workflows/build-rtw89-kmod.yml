@@ -152,11 +152,9 @@ jobs:
           wget -q "$BP_URL" -O backports.tar.xz
           echo "${BP_HASH}  backports.tar.xz" | sha256sum -c
           tar -xf backports.tar.xz
-          # 拷贝 backport-include 兼容头文件（只复制 mac80211.h 需要的）
-          # unaligned.h 在 6.6.119 中不存在，需要用 backport 版本
-          # bug.h/lockdep.h 用内核自带的即可
-          cp backports-${BP_VER}/backport-include/linux/unaligned.h linux-6.6.119/include/linux/
-          echo "Copied backport-include: unaligned.h"
+          # linux/unaligned.h 在 6.6.119 中不存在，创建一个指向 asm/unaligned.h 的兼容头文件
+          echo '#include <asm/unaligned.h>' > linux-6.6.119/include/linux/unaligned.h
+          echo "Created linux/unaligned.h → asm/unaligned.h"
           # 转换 CPTCFG_ → CONFIG_ 并替换 mac80211.h
           python3 prepare_backports_header.py \
             "backports-${BP_VER}/include/net/mac80211.h" \
@@ -226,7 +224,7 @@ jobs:
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r25"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r26"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
