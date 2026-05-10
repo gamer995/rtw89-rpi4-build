@@ -49,7 +49,7 @@ jobs:
         with:
           path: linux-6.6.119/.build
           # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v17
+          key: linux-6.6.119-kbuild-v18
 
       - name: Prepare kernel build dir (arm64, SMP, no modversions)
         if: steps.cache-kbuild.outputs.cache-hit != 'true'
@@ -87,7 +87,6 @@ jobs:
             --disable CONFIG_TRACING \
             --disable CONFIG_EVENT_TRACING \
             --disable CONFIG_TRACEPOINTS \
-            --disable CONFIG_IPV6 \
             --disable CONFIG_BPF_EVENTS \
             --disable CONFIG_TREE_SRCU \
             --disable CONFIG_PRINTK_INDEX \
@@ -138,6 +137,31 @@ jobs:
             /tmp/kbuild-final.config
             /tmp/kbuild-autoconf.h
           retention-days: 3
+
+      # ── 4c. 用 backports-6.12.61 的 mac80211.h 替换内核头文件 ──
+      # iStoreOS 内核基于 backports-6.12.61，其 struct ieee80211_ops 布局与
+      # 标准 6.6.119 不同。直接用 backports 头文件编译可确保布局完全一致。
+      # backports 使用 CPTCFG_ 前缀 → 转为 CONFIG_ 配合 autoconf.h 使用。
+      # 还需要 backport-include 中的兼容头文件（unaligned.h 等）。
+      - name: Replace mac80211.h with backports-6.12.61 version
+        run: |
+          BP_VER="6.12.61"
+          BP_HASH="9db2f836dba7f38ad68f8798720ad4360bce6a3557bde02b88b3a4f068c77118"
+          BP_URL="http://mirror2.openwrt.org/sources/backports-${BP_VER}.tar.xz"
+          echo "Downloading backports-${BP_VER}..."
+          wget -q "$BP_URL" -O backports.tar.xz
+          echo "${BP_HASH}  backports.tar.xz" | sha256sum -c
+          tar -xf backports.tar.xz
+          # 拷贝 backport-include 兼容头文件
+          cp -r backports-${BP_VER}/backport-include/linux/*.h linux-6.6.119/include/linux/
+          echo "Copied backport-include headers"
+          # 转换 CPTCFG_ → CONFIG_ 并替换 mac80211.h
+          python3 prepare_backports_header.py \
+            "backports-${BP_VER}/include/net/mac80211.h" \
+            linux-6.6.119/include/net/mac80211.h
+          echo "=== Key fields in new header ==="
+          awk '/^struct ieee80211_ops \{/,/^\};/' linux-6.6.119/include/net/mac80211.h \
+            | grep "(\*" | nl -v0 | grep -E "wake_tx_queue|sta_state|sta_add|add_chanctx|ipv6_addr"
 
       # ── 5. 克隆 morrownr/rtw89 驱动（固定到 d2f175ea 提交）────
       #    每次都新鲜 clone，避免缓存包含旧的编译产物（.o/.a/.ko）
@@ -200,7 +224,7 @@ jobs:
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r23"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r24"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
