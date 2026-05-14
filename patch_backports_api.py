@@ -22,6 +22,19 @@ def replace_once(path: str, old: str, new: str) -> None:
     print(f"{path}: patched")
 
 
+def replace_exact_count(path: str, old: str, new: str, count: int) -> None:
+    p = Path(path)
+    src = p.read_text()
+    hits = src.count(old)
+    if hits == 0 and src.count(new) == count:
+        print(f"{path}: already patched {count} occurrence(s)")
+        return
+    if hits != count:
+        raise SystemExit(f"{path}: expected {count} occurrence(s), found {hits}:\n{old}")
+    p.write_text(src.replace(old, new, count))
+    print(f"{path}: patched {count} occurrence(s)")
+
+
 replace_once(
     "rtw89/mac80211.c",
     "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)\n"
@@ -60,6 +73,15 @@ replace_once(
     "\t\tieee80211_csa_finish(vif);\n",
     "#if 0 /* iStoreOS backports-6.12.61 mac80211 API */\n"
     "\t\tieee80211_csa_finish(vif);\n",
+)
+
+replace_exact_count(
+    "rtw89/fw.c",
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)\n"
+    "\t\tu16 punct = bss_conf->chanreq.oper.punctured;\n",
+    "#if 1 /* iStoreOS backports-6.12.61 mac80211 API */\n"
+    "\t\tu16 punct = bss_conf->chanreq.oper.punctured;\n",
+    2,
 )
 
 print("SUCCESS: backports mac80211 API call-site patch applied")
