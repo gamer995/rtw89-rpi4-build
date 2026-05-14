@@ -49,7 +49,7 @@ jobs:
         with:
           path: linux-6.6.119/.build
           # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v19
+          key: linux-6.6.119-kbuild-v20
 
       - name: Prepare kernel build dir (arm64, SMP, no modversions)
         if: steps.cache-kbuild.outputs.cache-hit != 'true'
@@ -87,7 +87,8 @@ jobs:
             --disable CONFIG_TRACING \
             --disable CONFIG_EVENT_TRACING \
             --disable CONFIG_TRACEPOINTS \
-            --disable CONFIG_IPV6 \
+            --enable  CONFIG_MAC80211_DEBUGFS \
+            --disable CONFIG_NL80211_TESTMODE \
             --disable CONFIG_BPF_EVENTS \
             --disable CONFIG_TREE_SRCU \
             --disable CONFIG_PRINTK_INDEX \
@@ -125,6 +126,14 @@ jobs:
           echo "=== autoconf.h: struct-module relevant defines after patch ==="
           grep -E "KALLSYMS|STACKTRACE|MODULES_TREE|PERF_EVENTS|TRACEPOINTS|TREE_SRCU|IPV6" "$AUTOCONF" | sort
 
+          # iStoreOS ships mac80211/cfg80211 from backports-6.12.61 on top of
+          # kernel 6.6.119. Make rtw89's version-gated mac80211 API branches
+          # follow the backports API while keeping the module vermagic at 6.6.119.
+          VERSION_H=".build/include/generated/uapi/linux/version.h"
+          sed -i 's/^#define LINUX_VERSION_CODE .*/#define LINUX_VERSION_CODE 396349/' "$VERSION_H"
+          echo "=== generated version.h after backports API patch ==="
+          grep -E 'LINUX_VERSION_CODE|KERNEL_VERSION' "$VERSION_H"
+
           # 备份最终状态供诊断
           cp .build/.config /tmp/kbuild-final.config
           cp "$AUTOCONF" /tmp/kbuild-autoconf.h
@@ -138,6 +147,29 @@ jobs:
             /tmp/kbuild-final.config
             /tmp/kbuild-autoconf.h
           retention-days: 3
+
+      # ── 4c. 用 backports-6.12.61 的 mac80211.h 对齐 iStoreOS ABI ──
+      - name: Replace mac80211.h with backports-6.12.61 version
+        run: |
+          BP_VER="6.12.61"
+          BP_HASH="9db2f836dba7f38ad68f8798720ad4360bce6a3557bde02b88b3a4f068c77118"
+          BP_URL="http://mirror2.openwrt.org/sources/backports-${BP_VER}.tar.xz"
+          echo "Downloading backports-${BP_VER}..."
+          wget -q "$BP_URL" -O backports.tar.xz
+          echo "${BP_HASH}  backports.tar.xz" | sha256sum -c
+          tar -xf backports.tar.xz
+
+          # Linux 6.6 has asm/unaligned.h, while backports-6.12 mac80211.h
+          # includes linux/unaligned.h. Do not copy all backport headers here:
+          # they are include_next wrappers and break a standalone kernel tree.
+          printf '#include <asm/unaligned.h>\n' > linux-6.6.119/include/linux/unaligned.h
+
+          python3 prepare_backports_header.py \
+            "backports-${BP_VER}/include/net/mac80211.h" \
+            linux-6.6.119/include/net/mac80211.h
+          echo "=== Key fields in backports mac80211.h ==="
+          awk '/^struct ieee80211_ops \{/,/^\};/' linux-6.6.119/include/net/mac80211.h \
+            | grep "(\*" | nl -v0 | grep -E "wake_tx_queue|vif_cfg_changed|link_info_changed|sta_state|sta_add|add_chanctx|ipv6_addr"
 
       # ── 5. 克隆 morrownr/rtw89 驱动（固定到 d2f175ea 提交）────
       #    每次都新鲜 clone，避免缓存包含旧的编译产物（.o/.a/.ko）
@@ -200,7 +232,7 @@ jobs:
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r27"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r28"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
