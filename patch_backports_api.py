@@ -84,9 +84,7 @@ replace_exact_count(
     "#else\n"
     "\t\th2c->w4 |= le32_encode_bits(~vif->bss_conf.eht_puncturing,\n"
     "#endif\n",
-    "\t\tu16 punct = 0;\n"
-    "\n"
-    "\t\th2c->w4 |= le32_encode_bits(~punct,\n",
+    "\t\th2c->w4 |= le32_encode_bits(0xFFFF,\n",
     2,
 )
 
