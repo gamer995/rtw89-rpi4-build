@@ -20,10 +20,10 @@ jobs:
       fail-fast: false
       matrix:
         probe_diag:
-          - core_before_wiphy_work
-          - core_after_wiphy_work
-          - core_before_fw_work
-          - core_before_schedule_fw
+          - usb_after_core_success
+          - usb_after_chip_info_success
+          - usb_after_core_register_success
+          - usb_after_start_rx_success
 
     steps:
       # ── 1. 拉取本仓库（含 patch 文件）──────────────────────────

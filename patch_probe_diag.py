@@ -103,6 +103,42 @@ elif stage == "core_before_schedule_fw":
         "\n"
         "\tschedule_work(&rtwdev->load_firmware_work);\n",
     )
+elif stage == "usb_after_core_success":
+    replace_once(
+        "rtw89/usb.c",
+        "\tret = rtw89_chip_info_setup(rtwdev);\n",
+        "\trtw89_err(rtwdev, \"DIAG usb_after_core_success: stop after core init with success\\n\");\n"
+        "\treturn 0;\n"
+        "\n"
+        "\tret = rtw89_chip_info_setup(rtwdev);\n",
+    )
+elif stage == "usb_after_chip_info_success":
+    replace_once(
+        "rtw89/usb.c",
+        "\tret = rtw89_core_register(rtwdev);\n",
+        "\trtw89_err(rtwdev, \"DIAG usb_after_chip_info_success: stop after chip info with success\\n\");\n"
+        "\treturn 0;\n"
+        "\n"
+        "\tret = rtw89_core_register(rtwdev);\n",
+    )
+elif stage == "usb_after_core_register_success":
+    replace_once(
+        "rtw89/usb.c",
+        "\trtw89_usb_start_rx(rtwdev);\n",
+        "\trtw89_err(rtwdev, \"DIAG usb_after_core_register_success: stop after core register with success\\n\");\n"
+        "\treturn 0;\n"
+        "\n"
+        "\trtw89_usb_start_rx(rtwdev);\n",
+    )
+elif stage == "usb_after_start_rx_success":
+    replace_once(
+        "rtw89/usb.c",
+        "\tset_bit(RTW89_FLAG_PROBE_DONE, rtwdev->flags);\n",
+        "\trtw89_err(rtwdev, \"DIAG usb_after_start_rx_success: stop after USB RX start with success\\n\");\n"
+        "\treturn 0;\n"
+        "\n"
+        "\tset_bit(RTW89_FLAG_PROBE_DONE, rtwdev->flags);\n",
+    )
 elif stage == "before_chip_setup":
     replace_once(
         "rtw89/usb.c",
