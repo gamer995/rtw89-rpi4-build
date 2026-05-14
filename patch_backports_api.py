@@ -112,4 +112,12 @@ replace_once(
     "\t_rtw89_chan_update_punctured(rtwdev, rtwvif_link, &new_ctx->def);\n",
 )
 
+replace_once(
+    "rtw89/wow.c",
+    "#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)\n"
+    "\tif (ieee80211_vif_is_mld(wow_vif))\n",
+    "#elif 1 /* iStoreOS backports-6.12.61 mac80211 API */\n"
+    "\tif (ieee80211_vif_is_mld(wow_vif))\n",
+)
+
 print("SUCCESS: backports mac80211 API call-site patch applied")
