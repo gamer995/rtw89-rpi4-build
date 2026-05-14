@@ -10,6 +10,7 @@ on:
       - 'apply_patches.py'
       - 'patch_backports_api.py'
       - 'patch_probe_diag.py'
+      - 'patch_sync_firmware_load.py'
       - 'prepare_backports_header.py'
 
 jobs:
@@ -20,10 +21,7 @@ jobs:
       fail-fast: false
       matrix:
         probe_diag:
-          - usb_after_schedule_success
-          - usb_after_ser_success
-          - usb_after_entity_success
-          - usb_after_sar_success
+          - none
 
     steps:
       # ── 1. 拉取本仓库（含 patch 文件）──────────────────────────
@@ -196,6 +194,7 @@ jobs:
         run: |
           python3 apply_patches.py
           python3 patch_backports_api.py
+          python3 patch_sync_firmware_load.py
           python3 patch_probe_diag.py
           echo "=== Patched mac80211.c md5 ==="
           md5sum rtw89/mac80211.c
