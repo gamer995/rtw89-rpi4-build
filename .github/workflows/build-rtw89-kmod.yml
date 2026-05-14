@@ -166,7 +166,7 @@ jobs:
           awk '/^struct ieee80211_ops \{/,/^\};/' linux-6.6.119/include/net/mac80211.h \
             | grep "(\*" | nl -v0 | grep -E "wake_tx_queue|vif_cfg_changed|link_info_changed|sta_state|sta_add|add_chanctx|ipv6_addr"
 
-      # ── 5. 克隆 morrownr/rtw89 驱动（固定到 d2f175ea 提交）────
+      # ── 5. 克隆 morrownr/rtw89 驱动（包含 RTL8922AU USB 修复）────
       #    每次都新鲜 clone，避免缓存包含旧的编译产物（.o/.a/.ko）
       #    导致 make 跳过重编译，patch 无法真正进入最终 .ko
       - name: Clone morrownr/rtw89 driver source
@@ -175,7 +175,7 @@ jobs:
           git init rtw89
           cd rtw89
           git remote add origin https://github.com/morrownr/rtw89.git
-          git fetch --depth 1 origin d2f175eafa0a4ef9cc65e7073a77e60238cae614
+          git fetch --depth 1 origin e36615e79962337b2f8c70f43419eb3f942362dc
           git checkout FETCH_HEAD
           echo "=== morrownr/rtw89 driver files ==="
           ls *.c | wc -l
@@ -228,7 +228,7 @@ jobs:
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-r28"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~e36615e-r29"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
