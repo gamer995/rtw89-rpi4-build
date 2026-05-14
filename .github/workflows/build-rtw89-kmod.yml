@@ -20,10 +20,10 @@ jobs:
       fail-fast: false
       matrix:
         probe_diag:
-          - before_chip_setup
-          - before_pwr_on
-          - after_read_chip
-          - after_pwr_on
+          - before_intf_init
+          - before_rx_alloc
+          - before_rx_init
+          - before_core_init
 
     steps:
       # ── 1. 拉取本仓库（含 patch 文件）──────────────────────────
