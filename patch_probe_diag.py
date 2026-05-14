@@ -63,6 +63,46 @@ elif stage == "before_core_init":
         "\n"
         "\tret = rtw89_core_init(rtwdev);\n",
     )
+elif stage == "core_before_wiphy_work":
+    replace_once(
+        "rtw89/core.c",
+        "\twiphy_delayed_work_init(&rtwdev->track_work, rtw89_track_work);\n",
+        "\trtw89_err(rtwdev, \"DIAG core_before_wiphy_work: stop before wiphy work init\\n\");\n"
+        "\treturn -EOPNOTSUPP;\n"
+        "\n"
+        "\twiphy_delayed_work_init(&rtwdev->track_work, rtw89_track_work);\n",
+    )
+elif stage == "core_after_wiphy_work":
+    replace_once(
+        "rtw89/core.c",
+        "\trtwdev->txq_wq = alloc_workqueue(\"rtw89_tx_wq\", WQ_UNBOUND | WQ_HIGHPRI, 0);\n",
+        "\trtw89_err(rtwdev, \"DIAG core_after_wiphy_work: stop after wiphy work init\\n\");\n"
+        "\treturn -EOPNOTSUPP;\n"
+        "\n"
+        "\trtwdev->txq_wq = alloc_workqueue(\"rtw89_tx_wq\", WQ_UNBOUND | WQ_HIGHPRI, 0);\n",
+    )
+elif stage == "core_before_fw_work":
+    replace_once(
+        "rtw89/core.c",
+        "\tINIT_WORK(&rtwdev->load_firmware_work, rtw89_load_firmware_work);\n",
+        "\trtw89_err(rtwdev, \"DIAG core_before_fw_work: stop before firmware work init\\n\");\n"
+        "\tdestroy_workqueue(rtwdev->txq_wq);\n"
+        "\tmutex_destroy(&rtwdev->rf_mutex);\n"
+        "\treturn -EOPNOTSUPP;\n"
+        "\n"
+        "\tINIT_WORK(&rtwdev->load_firmware_work, rtw89_load_firmware_work);\n",
+    )
+elif stage == "core_before_schedule_fw":
+    replace_once(
+        "rtw89/core.c",
+        "\tschedule_work(&rtwdev->load_firmware_work);\n",
+        "\trtw89_err(rtwdev, \"DIAG core_before_schedule_fw: stop before firmware work schedule\\n\");\n"
+        "\tdestroy_workqueue(rtwdev->txq_wq);\n"
+        "\tmutex_destroy(&rtwdev->rf_mutex);\n"
+        "\treturn -EOPNOTSUPP;\n"
+        "\n"
+        "\tschedule_work(&rtwdev->load_firmware_work);\n",
+    )
 elif stage == "before_chip_setup":
     replace_once(
         "rtw89/usb.c",

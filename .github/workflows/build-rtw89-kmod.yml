@@ -20,10 +20,10 @@ jobs:
       fail-fast: false
       matrix:
         probe_diag:
-          - before_intf_init
-          - before_rx_alloc
-          - before_rx_init
-          - before_core_init
+          - core_before_wiphy_work
+          - core_after_wiphy_work
+          - core_before_fw_work
+          - core_before_schedule_fw
 
     steps:
       # ── 1. 拉取本仓库（含 patch 文件）──────────────────────────
