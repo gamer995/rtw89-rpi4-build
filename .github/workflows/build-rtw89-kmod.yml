@@ -49,7 +49,7 @@ jobs:
         with:
           path: linux-6.6.119/.build
           # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v20
+          key: linux-6.6.119-kbuild-v21
 
       - name: Prepare kernel build dir (arm64, SMP, no modversions)
         if: steps.cache-kbuild.outputs.cache-hit != 'true'
@@ -126,14 +126,6 @@ jobs:
           echo "=== autoconf.h: struct-module relevant defines after patch ==="
           grep -E "KALLSYMS|STACKTRACE|MODULES_TREE|PERF_EVENTS|TRACEPOINTS|TREE_SRCU|IPV6" "$AUTOCONF" | sort
 
-          # iStoreOS ships mac80211/cfg80211 from backports-6.12.61 on top of
-          # kernel 6.6.119. Make rtw89's version-gated mac80211 API branches
-          # follow the backports API while keeping the module vermagic at 6.6.119.
-          VERSION_H=".build/include/generated/uapi/linux/version.h"
-          sed -i 's/^#define LINUX_VERSION_CODE .*/#define LINUX_VERSION_CODE 396349/' "$VERSION_H"
-          echo "=== generated version.h after backports API patch ==="
-          grep -E 'LINUX_VERSION_CODE|KERNEL_VERSION' "$VERSION_H"
-
           # 备份最终状态供诊断
           cp .build/.config /tmp/kbuild-final.config
           cp "$AUTOCONF" /tmp/kbuild-autoconf.h
@@ -189,6 +181,7 @@ jobs:
       - name: Apply patches
         run: |
           python3 apply_patches.py
+          python3 patch_backports_api.py
           echo "=== Patched mac80211.c md5 ==="
           md5sum rtw89/mac80211.c
 
