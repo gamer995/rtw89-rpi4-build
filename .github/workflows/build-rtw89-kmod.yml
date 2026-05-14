@@ -9,12 +9,21 @@ on:
       - '.github/workflows/build-rtw89-kmod.yml'
       - 'apply_patches.py'
       - 'patch_backports_api.py'
+      - 'patch_probe_diag.py'
       - 'prepare_backports_header.py'
 
 jobs:
   build:
     name: Compile rtw89 8922AU kernel module
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        probe_diag:
+          - before_chip_setup
+          - before_pwr_on
+          - after_read_chip
+          - after_pwr_on
 
     steps:
       # ── 1. 拉取本仓库（含 patch 文件）──────────────────────────
@@ -166,7 +175,7 @@ jobs:
           awk '/^struct ieee80211_ops \{/,/^\};/' linux-6.6.119/include/net/mac80211.h \
             | grep "(\*" | nl -v0 | grep -E "wake_tx_queue|vif_cfg_changed|link_info_changed|sta_state|sta_add|add_chanctx|ipv6_addr"
 
-      # ── 5. 克隆 morrownr/rtw89 驱动（包含 RTL8922AU USB 修复）────
+      # ── 5. 克隆 morrownr/rtw89 驱动（固定到 d2f175ea 提交）────
       #    每次都新鲜 clone，避免缓存包含旧的编译产物（.o/.a/.ko）
       #    导致 make 跳过重编译，patch 无法真正进入最终 .ko
       - name: Clone morrownr/rtw89 driver source
@@ -175,16 +184,19 @@ jobs:
           git init rtw89
           cd rtw89
           git remote add origin https://github.com/morrownr/rtw89.git
-          git fetch --depth 1 origin e36615e79962337b2f8c70f43419eb3f942362dc
+          git fetch --depth 1 origin d2f175eafa0a4ef9cc65e7073a77e60238cae614
           git checkout FETCH_HEAD
           echo "=== morrownr/rtw89 driver files ==="
           ls *.c | wc -l
 
       # ── 6. 应用修改（基于内容搜索，不依赖行号）──────────────
       - name: Apply patches
+        env:
+          RTW89_PROBE_DIAG: ${{ matrix.probe_diag }}
         run: |
           python3 apply_patches.py
           python3 patch_backports_api.py
+          python3 patch_probe_diag.py
           echo "=== Patched mac80211.c md5 ==="
           md5sum rtw89/mac80211.c
 
@@ -228,7 +240,7 @@ jobs:
         run: |
           set -e
           KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~e36615e-r29"
+          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-${{ matrix.probe_diag }}-r30"
           PKGNAME="kmod-rtw89-8922au-git"
           ARCH="aarch64_cortex-a72"
           OUTDIR="ipk-staging"
@@ -277,7 +289,7 @@ jobs:
       - name: Upload .ipk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kmod-rtw89-8922au-patched
+          name: kmod-rtw89-8922au-${{ matrix.probe_diag }}
           path: "*.ipk"
           retention-days: 14
 
