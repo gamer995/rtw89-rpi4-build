@@ -139,6 +139,74 @@ elif stage == "usb_after_start_rx_success":
         "\n"
         "\tset_bit(RTW89_FLAG_PROBE_DONE, rtwdev->flags);\n",
     )
+elif stage == "usb_after_schedule_success":
+    replace_once(
+        "rtw89/core.c",
+        "\trtw89_ser_init(rtwdev);\n",
+        "\trtw89_err(rtwdev, \"DIAG usb_after_schedule_success: core return after firmware schedule\\n\");\n"
+        "\treturn 0;\n"
+        "\n"
+        "\trtw89_ser_init(rtwdev);\n",
+    )
+    replace_once(
+        "rtw89/usb.c",
+        "\tret = rtw89_chip_info_setup(rtwdev);\n",
+        "\trtw89_err(rtwdev, \"DIAG usb_after_schedule_success: usb stop after core init\\n\");\n"
+        "\treturn 0;\n"
+        "\n"
+        "\tret = rtw89_chip_info_setup(rtwdev);\n",
+    )
+elif stage == "usb_after_ser_success":
+    replace_once(
+        "rtw89/core.c",
+        "\trtw89_entity_init(rtwdev);\n",
+        "\trtw89_err(rtwdev, \"DIAG usb_after_ser_success: core return after SER init\\n\");\n"
+        "\treturn 0;\n"
+        "\n"
+        "\trtw89_entity_init(rtwdev);\n",
+    )
+    replace_once(
+        "rtw89/usb.c",
+        "\tret = rtw89_chip_info_setup(rtwdev);\n",
+        "\trtw89_err(rtwdev, \"DIAG usb_after_ser_success: usb stop after core init\\n\");\n"
+        "\treturn 0;\n"
+        "\n"
+        "\tret = rtw89_chip_info_setup(rtwdev);\n",
+    )
+elif stage == "usb_after_entity_success":
+    replace_once(
+        "rtw89/core.c",
+        "\trtw89_sar_init(rtwdev);\n",
+        "\trtw89_err(rtwdev, \"DIAG usb_after_entity_success: core return after entity init\\n\");\n"
+        "\treturn 0;\n"
+        "\n"
+        "\trtw89_sar_init(rtwdev);\n",
+    )
+    replace_once(
+        "rtw89/usb.c",
+        "\tret = rtw89_chip_info_setup(rtwdev);\n",
+        "\trtw89_err(rtwdev, \"DIAG usb_after_entity_success: usb stop after core init\\n\");\n"
+        "\treturn 0;\n"
+        "\n"
+        "\tret = rtw89_chip_info_setup(rtwdev);\n",
+    )
+elif stage == "usb_after_sar_success":
+    replace_once(
+        "rtw89/core.c",
+        "\trtw89_phy_ant_gain_init(rtwdev);\n",
+        "\trtw89_err(rtwdev, \"DIAG usb_after_sar_success: core return after SAR init\\n\");\n"
+        "\treturn 0;\n"
+        "\n"
+        "\trtw89_phy_ant_gain_init(rtwdev);\n",
+    )
+    replace_once(
+        "rtw89/usb.c",
+        "\tret = rtw89_chip_info_setup(rtwdev);\n",
+        "\trtw89_err(rtwdev, \"DIAG usb_after_sar_success: usb stop after core init\\n\");\n"
+        "\treturn 0;\n"
+        "\n"
+        "\tret = rtw89_chip_info_setup(rtwdev);\n",
+    )
 elif stage == "before_chip_setup":
     replace_once(
         "rtw89/usb.c",
