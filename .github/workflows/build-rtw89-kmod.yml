@@ -7,6 +7,9 @@ on:
     paths:
       - '*.patch'
       - '.github/workflows/build-rtw89-kmod.yml'
+      - 'apply_patches.py'
+      - 'patch_backports_api.py'
+      - 'prepare_backports_header.py'
 
 jobs:
   build:
@@ -159,18 +162,6 @@ jobs:
           python3 prepare_backports_header.py \
             "backports-${BP_VER}/include/net/mac80211.h" \
             linux-6.6.119/include/net/mac80211.h
-          python3 - <<'PY'
-          from pathlib import Path
-          for src, dst in [
-              ("backports-6.12.61/include/net/cfg80211.h",
-               "linux-6.6.119/include/net/cfg80211.h"),
-              ("backports-6.12.61/include/uapi/linux/nl80211.h",
-               "linux-6.6.119/include/uapi/linux/nl80211.h"),
-          ]:
-              text = Path(src).read_text().replace("CPTCFG_", "CONFIG_")
-              Path(dst).write_text(text)
-              print(f"Written: {dst}")
-          PY
           echo "=== Key fields in backports mac80211.h ==="
           awk '/^struct ieee80211_ops \{/,/^\};/' linux-6.6.119/include/net/mac80211.h \
             | grep "(\*" | nl -v0 | grep -E "wake_tx_queue|vif_cfg_changed|link_info_changed|sta_state|sta_add|add_chanctx|ipv6_addr"

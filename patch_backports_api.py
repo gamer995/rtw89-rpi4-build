@@ -78,10 +78,40 @@ replace_once(
 replace_exact_count(
     "rtw89/fw.c",
     "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)\n"
-    "\t\tu16 punct = bss_conf->chanreq.oper.punctured;\n",
-    "#if 1 /* iStoreOS backports-6.12.61 mac80211 API */\n"
-    "\t\tu16 punct = bss_conf->chanreq.oper.punctured;\n",
+    "\t\tu16 punct = bss_conf->chanreq.oper.punctured;\n"
+    "\n"
+    "\t\th2c->w4 |= le32_encode_bits(~punct,\n"
+    "#else\n"
+    "\t\th2c->w4 |= le32_encode_bits(~vif->bss_conf.eht_puncturing,\n"
+    "#endif\n",
+    "\t\tu16 punct = 0;\n"
+    "\n"
+    "\t\th2c->w4 |= le32_encode_bits(~punct,\n",
     2,
+)
+
+replace_once(
+    "rtw89/chan.c",
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)\n"
+    "static void _rtw89_chan_update_punctured(struct rtw89_dev *rtwdev,\n",
+    "#if 0 /* iStoreOS keeps cfg80211_chan_def without punctured */\n"
+    "static void _rtw89_chan_update_punctured(struct rtw89_dev *rtwdev,\n",
+)
+
+replace_once(
+    "rtw89/chan.c",
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)\n"
+    "\tif (changed & IEEE80211_CHANCTX_CHANGE_PUNCTURING)\n",
+    "#if 0 /* iStoreOS keeps cfg80211_chan_def without punctured */\n"
+    "\tif (changed & IEEE80211_CHANCTX_CHANGE_PUNCTURING)\n",
+)
+
+replace_once(
+    "rtw89/chan.c",
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)\n"
+    "\t_rtw89_chan_update_punctured(rtwdev, rtwvif_link, &new_ctx->def);\n",
+    "#if 0 /* iStoreOS keeps cfg80211_chan_def without punctured */\n"
+    "\t_rtw89_chan_update_punctured(rtwdev, rtwvif_link, &new_ctx->def);\n",
 )
 
 print("SUCCESS: backports mac80211 API call-site patch applied")
