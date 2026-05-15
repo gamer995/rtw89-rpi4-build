@@ -175,45 +175,6 @@ diff --git a/rtw8922a.c b/rtw8922a.c
  	.h2c_punctured_cmac_tbl	= rtw89_fw_h2c_punctured_cmac_tbl_g7,
  #else
  	.h2c_punctured_cmac_tbl	= NULL,
-diff --git a/usb.c b/usb.c
---- a/usb.c
-+++ b/usb.c
-@@ -418,7 +418,7 @@ static int rtw89_usb_ops_tx_write(struct rtw89_dev *rtwdev,
- 	return 0;
- }
- 
--#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
-+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
- static void rtw89_usb_rx_handler(struct work_struct *work)
- {
- 	struct rtw89_usb *rtwusb = container_of(work, struct rtw89_usb, rx_work);
-@@ -552,7 +552,7 @@ static void rtw89_usb_read_port_complete(struct urb *urb)
- 		} else {
- 			skb_put(skb, urb->actual_length);
- 			skb_queue_tail(&rtwusb->rx_queue, skb);
--#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
-+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
- 			queue_work(rtwusb->rxwq, &rtwusb->rx_work);
- #else
- 			tasklet_schedule(&rtwusb->rx_tasklet);
-@@ -645,7 +645,7 @@ static int rtw89_usb_init_rx(struct rtw89_dev *rtwdev)
- 
- #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
- 	rtwusb->rxwq = alloc_workqueue("rtw89_usb: rx wq", WQ_BH | WQ_PERCPU, 0);
--#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
-+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
- 	rtwusb->rxwq = alloc_workqueue("rtw89_usb: rx wq", WQ_BH, 0);
- #else
- 	tasklet_init(&rtwusb->rx_tasklet, rtw89_usb_rx_handler,
-@@ -661,7 +661,7 @@ static int rtw89_usb_init_rx(struct rtw89_dev *rtwdev)
- 	skb_queue_head_init(&rtwusb->rx_queue);
- 	skb_queue_head_init(&rtwusb->rx_free_queue);
- 
--#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
-+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
- 	INIT_WORK(&rtwusb->rx_work, rtw89_usb_rx_handler);
- #endif
- 	INIT_WORK(&rtwusb->rx_urb_work, rtw89_usb_rx_resubmit_work);
 diff --git a/wow.c b/wow.c
 --- a/wow.c
 +++ b/wow.c
