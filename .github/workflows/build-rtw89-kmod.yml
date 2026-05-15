@@ -10,13 +10,15 @@ on:
 
 jobs:
   build:
-    name: Build patched source with OpenWrt SDK
+    name: Build patched source inside OpenWrt mac80211 backports
     runs-on: ubuntu-22.04
 
     env:
       SDK_URL: https://downloads.openwrt.org/releases/24.10.5/targets/bcm27xx/bcm2711/openwrt-sdk-24.10.5-bcm27xx-bcm2711_gcc-13.3.0_musl.Linux-x86_64.tar.zst
+      OPENWRT_REF: v24.10.5
+      RTW89_REF: d2f175eafa0a4ef9cc65e7073a77e60238cae614
       KERNEL_ABI: 6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1
-      OUT_VERSION: 6.6.119.2026.05.15~d2f175ea-r6
+      OUT_VERSION: 6.6.119.2026.05.15~d2f175ea-r7
       PKG_NAME: kmod-rtw89-8922au-git
 
     steps:
@@ -31,36 +33,67 @@ jobs:
             git libncurses5-dev libssl-dev python3-distutils rsync unzip \
             zstd file wget ca-certificates binutils-aarch64-linux-gnu
 
-      - name: Download OpenWrt 24.10.5 bcm2711 SDK
+      - name: Download OpenWrt 24.10.5 bcm2711 SDK and mac80211 package
         run: |
           set -eu
-          mkdir sdk
+          mkdir sdk openwrt-src
           wget -q "$SDK_URL" -O sdk.tar.zst
           tar --zstd -xf sdk.tar.zst -C sdk --strip-components=1
+          git clone --depth 1 --branch "$OPENWRT_REF" https://github.com/openwrt/openwrt.git openwrt-src
+          mkdir -p sdk/package/kernel
+          cp -a openwrt-src/package/kernel/mac80211 sdk/package/kernel/
 
-      - name: Build patched rtw89 package
+      - name: Prepare mac80211 backports tree
         run: |
           set -eu
-          cp -a package/kernel/rtw89-8922au-git sdk/package/kernel/
           cd sdk
-          printf 'CONFIG_PACKAGE_kmod-rtw89-8922au-git=m\n' >> .config
+          cat >> .config <<'EOF'
+          CONFIG_PACKAGE_kmod-cfg80211=m
+          CONFIG_PACKAGE_kmod-mac80211=m
+          CONFIG_PACKAGE_kmod-rtw89=m
+          CONFIG_DRIVER_11AC_SUPPORT=y
+          CONFIG_DRIVER_11AX_SUPPORT=y
+          CONFIG_DRIVER_11BE_SUPPORT=y
+          CONFIG_PACKAGE_MAC80211_DEBUGFS=y
+          EOF
           make defconfig
-          make package/kernel/rtw89-8922au-git/compile V=s -j"$(nproc)"
+          make package/kernel/mac80211/prepare V=s
 
-      - name: Normalize package for iStoreOS kernel ABI
+      - name: Replace backports rtw89 with morrownr patched source
         run: |
           set -eu
-          rm -rf out verify
-          mkdir -p out verify/control verify/data
+          git clone https://github.com/morrownr/rtw89.git rtw89-src
+          git -C rtw89-src checkout "$RTW89_REF"
 
-          ipk=$(find sdk/bin/targets/bcm27xx/bcm2711/packages \
-            -name "${PKG_NAME}_*.ipk" | head -1)
-          test -n "$ipk"
-          echo "Built $ipk"
+          for p in package/kernel/rtw89-8922au-git/patches/*.patch; do
+            git -C rtw89-src apply --check "$GITHUB_WORKSPACE/$p"
+            git -C rtw89-src apply "$GITHUB_WORKSPACE/$p"
+          done
 
-          tar -xzf "$ipk" -C verify
-          tar -xzf verify/control.tar.gz -C verify/control
-          tar -xzf verify/data.tar.gz -C verify/data
+          bp_dir=$(find sdk/build_dir -path '*/backports-6.12.61' -type d | head -1)
+          test -n "$bp_dir"
+          rm -rf "$bp_dir/drivers/net/wireless/realtek/rtw89"
+          mkdir -p "$bp_dir/drivers/net/wireless/realtek"
+          cp -a rtw89-src "$bp_dir/drivers/net/wireless/realtek/rtw89"
+
+          echo "Backports tree: $bp_dir"
+          grep -R "skip MAC flush for USB" -n "$bp_dir/drivers/net/wireless/realtek/rtw89" || true
+          grep -R "extend RF DACK wait" -n "$bp_dir/drivers/net/wireless/realtek/rtw89"
+
+      - name: Compile patched rtw89 in mac80211 backports
+        run: |
+          set -eu
+          cd sdk
+          make package/kernel/mac80211/compile V=s -j"$(nproc)"
+
+      - name: Package and verify iStoreOS modules
+        run: |
+          set -eu
+          rm -rf out verify/data verify/control
+          mkdir -p out verify/data/lib/modules/6.6.119 verify/control
+
+          bp_dir=$(find sdk/build_dir -path '*/backports-6.12.61' -type d | head -1)
+          rtw_dir="$bp_dir/drivers/net/wireless/realtek/rtw89"
 
           for ko in \
             rtw89_core_git.ko \
@@ -68,23 +101,27 @@ jobs:
             rtw89_8922a_git.ko \
             rtw89_8922au_git.ko
           do
-            ko_path="verify/data/lib/modules/6.6.119/$ko"
+            ko_path="$rtw_dir/$ko"
             test -s "$ko_path"
+            cp "$ko_path" "verify/data/lib/modules/6.6.119/$ko"
             size_hex=$(aarch64-linux-gnu-objdump -h "$ko_path" \
               | awk '$2 == ".gnu.linkonce.this_module" { print $3 }')
             test "$size_hex" = "00000280"
             echo "$ko: .gnu.linkonce.this_module=0x${size_hex}"
           done
 
-          for ko in \
-            rtw89_core_git.ko \
-            rtw89_usb_git.ko \
-            rtw89_8922a_git.ko \
-            rtw89_8922au_git.ko
-          do
-            echo "$ko modinfo depends:"
-            strings "verify/data/lib/modules/6.6.119/$ko" \
-              | grep '^depends=' || true
+          strings verify/data/lib/modules/6.6.119/rtw89_core_git.ko \
+            | grep -qx 'depends=mac80211,cfg80211'
+          strings verify/data/lib/modules/6.6.119/rtw89_usb_git.ko \
+            | grep -qx 'depends=rtw89_core_git,mac80211'
+          strings verify/data/lib/modules/6.6.119/rtw89_8922a_git.ko \
+            | grep -qx 'depends=rtw89_core_git,cfg80211'
+          strings verify/data/lib/modules/6.6.119/rtw89_8922au_git.ko \
+            | grep -qx 'depends=rtw89_8922a_git,rtw89_usb_git'
+
+          for ko in verify/data/lib/modules/6.6.119/*.ko; do
+            echo "$(basename "$ko") modinfo:"
+            strings "$ko" | grep -E '^(name=|depends=|vermagic=)' | sort
           done
 
           {
@@ -111,18 +148,19 @@ jobs:
       - name: Upload patched .ipk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kmod-rtw89-8922au-patched-r6-istoreos-5642ee
+          name: kmod-rtw89-8922au-patched-r7-backports-istoreos-5642ee
           path: out/*.ipk
           retention-days: 14
 
       - name: Show build summary
         run: |
           {
-            echo '## Patched r6 package'
+            echo '## Patched r7 package'
             echo ''
             echo '- Target: iStoreOS 24.10.5 Raspberry Pi 4, kernel 6.6.119'
+            echo '- Build path: OpenWrt mac80211 backports-6.12.61 package, with morrownr/rtw89 substituted into the backports rtw89 directory'
             echo '- Kernel ABI normalized to: 6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1'
             echo '- Source: morrownr/rtw89 d2f175eafa0a4ef9cc65e7073a77e60238cae614'
-            echo '- Patches: USB AP MAC flush skip, RTL8922A USB DACK wait extension'
+            echo '- Patches: USB MAC flush skip, RTL8922A USB DACK wait extension'
             echo "- Output: ${OUT_IPK}"
           } >> "$GITHUB_STEP_SUMMARY"
