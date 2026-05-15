@@ -7,23 +7,32 @@ PCIe-oriented 58 ms DACK wait used by RTL8922A.  On iStoreOS/RPi4 this
 prints "failed to wait RF DACK" during AP bring-up and leaves the
 following RFK sequence racing a still-running DACK calibration.
 
-Use a USB-specific DACK wait window.  Other RFK waits keep their
+Use an RTL8922A-specific DACK wait window. Other RFK waits keep their
 upstream values so failed C2H paths do not make every channel change
-block for a long time.
+block for a long time. Log the chosen window once per DACK request so
+field logs can prove the patched path was actually used.
 ---
- phy.c | 3 +++
- 1 file changed, 3 insertions(+)
+ phy.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
 
 diff --git a/phy.c b/phy.c
 --- a/phy.c
 +++ b/phy.c
-@@ -4190,6 +4190,9 @@ int rtw89_phy_rfk_dack_and_wait(struct rtw89_dev *rtwdev,
+@@ -4190,10 +4190,17 @@ int rtw89_phy_rfk_dack_and_wait(struct rtw89_dev *rtwdev,
  {
  	int ret;
  
-+	if (rtwdev->hci.type == RTW89_HCI_TYPE_USB)
++	if (rtwdev->chip->chip_id == RTL8922A) {
 +		ms = max(ms * 1000, 60000U);
++		rtw89_info(rtwdev,
++			   "extend RF DACK wait to %u ms for RTL8922A hci=%d\n",
++			   ms, rtwdev->hci.type);
++	}
 +
  	rtw89_phy_rfk_report_prep(rtwdev);
  
  	ret = rtw89_fw_h2c_rf_dack(rtwdev, phy_idx, chan);
+ 	if (ret)
+ 		return ret;
+ 
+ 	return rtw89_phy_rfk_report_wait(rtwdev, "DACK", ms);
