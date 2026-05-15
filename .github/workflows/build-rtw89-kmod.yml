@@ -95,11 +95,13 @@ jobs:
           test -n "$linux_dir"
           test -n "$symvers"
           test -n "$toolchain_bin"
-          export PATH="$(dirname "$toolchain_bin"):$PATH"
+          toolchain_dir=$(dirname "$toolchain_bin")
+          export PATH="$toolchain_dir:$PATH"
+          "$toolchain_bin" --version | head -1
           test -f "$bp_dir/Makefile.kernel"
           make -C "$bp_dir" \
             KCFLAGS="-ffile-prefix-map=$PWD/build_dir/target-aarch64_cortex-a72_musl=target-aarch64_cortex-a72_musl -fno-caller-saves " \
-            CROSS_COMPILE="aarch64-openwrt-linux-musl-" \
+            CROSS_COMPILE="$toolchain_dir/aarch64-openwrt-linux-musl-" \
             ARCH="arm64" \
             KBUILD_HAVE_NLS=no \
             KBUILD_BUILD_USER="builder" \
@@ -110,7 +112,7 @@ jobs:
             V=1 \
             cmd_syscalls= \
             KBUILD_EXTRA_SYMBOLS="$PWD/$symvers" \
-            CC="aarch64-openwrt-linux-musl-gcc" \
+            CC="$toolchain_bin" \
             KERNELRELEASE=6.6.119 \
             EXTRA_CFLAGS="-I$PWD/$bp_dir/include -ffile-prefix-map=$PWD/$bp_dir=backports-6.12.61 " \
             KLIB_BUILD="$PWD/$linux_dir" \
