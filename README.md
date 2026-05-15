@@ -1,6 +1,6 @@
 # rtw89-rpi4-build
 
-为 iStoreOS (Raspberry Pi 4) 发布 patched 版 **COMFAST CF-983BE** (RTL8922AU / WiFi 7) USB 网卡内核模块。
+为 iStoreOS (Raspberry Pi 4) 构建 patched 版 **COMFAST CF-983BE** (RTL8922AU / WiFi 7) USB 网卡内核模块。
 
 [![Build rtw89-8922au kmod](https://github.com/gamer995/rtw89-rpi4-build/actions/workflows/build-rtw89-kmod.yml/badge.svg)](https://github.com/gamer995/rtw89-rpi4-build/actions/workflows/build-rtw89-kmod.yml)
 
@@ -26,7 +26,19 @@
 
 补丁通过新增的 `rtw89_is_usb_ap()` 辅助函数判断是否需要跳过。
 
-## 当前稳定版本
+## 当前修复目标
+
+当前 r3 包能启动 AP，但仍能观察到两个稳定性问题：
+
+- `failed to wait RF DACK`：RTL8922A RFK DACK 等待窗口对 USB 太短，后续校准可能追着未完成的 DACK 跑。
+- `timed out to flush queues`：mac80211 station teardown 会触发 `ops_flush`，r3 没有覆盖这个断站 flush 路径。
+
+本仓库的 r4 构建使用 OpenWrt 24.10.5 bcm2711 SDK 编译源码，并加入：
+
+- `010-rtw89-usb-ap-skip-mac-flush-timeouts.patch`
+- `020-rtw89-8922a-extend-usb-dack-wait.patch`
+
+## 稳定基线
 
 当前可用版本是仓库内的 r3 稳定基线包：
 
@@ -41,13 +53,13 @@ known-good/kmod-rtw89-8922au-git_6.6.119_d2f175ea-r3_kernel-5642ee_iStoreOS-AP-f
 - USB3 `5000M` 下可创建 AP，SSID `RaspberryPi`
 - 已包含 USB AP 队列 flush 修复
 
-此前的裸 Linux kbuild CI 产物虽然能绕过 `struct module` 大小错误，但不是用 iStoreOS/OpenWrt 的 kbuild 和 mac80211 符号环境产出，实际加载 RTL8922AU 时会出现固件下载失败或重启。现在 Actions 只校验并发布这个稳定 r3 包，避免误装试验模块。
+此前的裸 Linux kbuild CI 产物虽然能绕过 `struct module` 大小错误，但不是用 iStoreOS/OpenWrt 的 kbuild 和 mac80211 符号环境产出，实际加载 RTL8922AU 时会出现固件下载失败或重启。后续源码构建必须走 OpenWrt/iStoreOS SDK package 流程。
 
 ## 快速使用
 
 ### 下载预构建 .ipk
 
-从 [GitHub Actions](https://github.com/gamer995/rtw89-rpi4-build/actions) 最新成功运行的 Artifacts 下载 `kmod-rtw89-8922au-stable-r3-istoreos-5642ee`。
+从 [GitHub Actions](https://github.com/gamer995/rtw89-rpi4-build/actions) 最新成功运行的 Artifacts 下载 `kmod-rtw89-8922au-patched-r4-istoreos-5642ee`。
 
 ### 安装
 
@@ -136,15 +148,18 @@ config wifi-iface 'default_radio2'
 
 ## CI (GitHub Actions)
 
-推送代码到 `main` 分支即自动触发校验。Workflow 会：
+推送代码到 `main` 分支即自动触发构建。Workflow 会：
 
-1. 解包 `known-good/` 中的 r3 稳定 `.ipk`
-2. 验证 control 中的 iStoreOS kernel ABI 依赖
-3. 验证四个 `.ko` 的 `struct module` section 大小为 `0x280`
-4. 验证模块依赖仍包含 `mac80211` / `cfg80211`
-5. 上传稳定 `.ipk` Artifact
+1. 下载 OpenWrt 24.10.5 bcm2711 SDK
+2. 拉取 morrownr/rtw89 固定 commit `d2f175e`
+3. 应用 r4 稳定性补丁
+4. 编译四个目标模块
+5. 验证 `struct module` section 大小为 `0x280`
+6. 验证模块依赖仍包含 `mac80211` / `cfg80211`
+7. 将 control 中的 kernel ABI 归一化为 iStoreOS 当前 `5642ee...`
+8. 上传 patched `.ipk` Artifact
 
-如果后续能拿到同一套 iStoreOS SDK/kbuild，可以再恢复源码构建；不要使用裸 Linux 6.6.119 kbuild 直接生成生产模块。
+不要使用裸 Linux 6.6.119 kbuild 直接生成生产模块。
 
 ## 许可证
 

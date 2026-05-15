@@ -1,48 +1,66 @@
-name: Package stable rtw89-8922au kmod for iStoreOS RPi4
+name: Build patched rtw89-8922au kmod for iStoreOS RPi4
 
 on:
   workflow_dispatch:
   push:
     paths:
       - '.github/workflows/build-rtw89-kmod.yml'
-      - 'known-good/*.ipk'
+      - 'package/kernel/rtw89-8922au-git/**'
       - 'README.md'
 
 jobs:
-  package:
-    name: Verify and publish stable r3 package
+  build:
+    name: Build patched source with OpenWrt SDK
     runs-on: ubuntu-22.04
 
     env:
-      GOOD_IPK: known-good/kmod-rtw89-8922au-git_6.6.119_d2f175ea-r3_kernel-5642ee_iStoreOS-AP-fix_2026-03-17.ipk
-      KERNEL_DEPENDS: 'Depends: kernel (=6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1), kmod-cfg80211, kmod-mac80211, kmod-usb-core'
+      SDK_URL: https://downloads.openwrt.org/releases/24.10.5/targets/bcm27xx/bcm2711/openwrt-sdk-24.10.5-bcm27xx-bcm2711_gcc-13.3.0_musl.Linux-x86_64.tar.zst
+      KERNEL_ABI: 6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1
+      OUT_VERSION: 6.6.119.2026.05.15~d2f175ea-r4
+      PKG_NAME: kmod-rtw89-8922au-git
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install verification tools
+      - name: Install build dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            binutils-aarch64-linux-gnu
+            build-essential clang flex bison g++ gawk gcc-multilib gettext \
+            git libncurses5-dev libssl-dev python3-distutils rsync unzip \
+            zstd file wget ca-certificates binutils-aarch64-linux-gnu
 
-      - name: Verify known-good iStoreOS package
+      - name: Download OpenWrt 24.10.5 bcm2711 SDK
         run: |
           set -eu
+          mkdir sdk
+          wget -q "$SDK_URL" -O sdk.tar.zst
+          tar --zstd -xf sdk.tar.zst -C sdk --strip-components=1
 
-          test -s "$GOOD_IPK"
+      - name: Build patched rtw89 package
+        run: |
+          set -eu
+          cp -a package/kernel/rtw89-8922au-git sdk/package/kernel/
+          cd sdk
+          printf 'CONFIG_PACKAGE_kmod-rtw89-8922au-git=m\n' >> .config
+          make defconfig
+          make package/kernel/rtw89-8922au-git/compile V=s -j"$(nproc)"
 
-          rm -rf verify out
-          mkdir -p verify/control verify/data out
+      - name: Normalize package for iStoreOS kernel ABI
+        run: |
+          set -eu
+          rm -rf out verify
+          mkdir -p out verify/control verify/data
 
-          tar -xzf "$GOOD_IPK" -C verify
+          ipk=$(find sdk/bin/targets/bcm27xx/bcm2711/packages \
+            -name "${PKG_NAME}_*.ipk" | head -1)
+          test -n "$ipk"
+          echo "Built $ipk"
+
+          tar -xzf "$ipk" -C verify
           tar -xzf verify/control.tar.gz -C verify/control
           tar -xzf verify/data.tar.gz -C verify/data
-
-          grep -qx 'Package: kmod-rtw89-8922au-git' verify/control/control
-          grep -qx 'Version: 6.6.119.2026.03.05~d2f175ea-r3' verify/control/control
-          grep -qx "$KERNEL_DEPENDS" verify/control/control
 
           for ko in \
             rtw89_core_git.ko \
@@ -67,24 +85,42 @@ jobs:
           strings verify/data/lib/modules/6.6.119/rtw89_8922au_git.ko \
             | grep -qx 'depends=rtw89_8922a_git,rtw89_usb_git'
 
-          cp "$GOOD_IPK" out/
+          {
+            echo "Package: ${PKG_NAME}"
+            echo "Version: ${OUT_VERSION}"
+            echo "Depends: kernel (=${KERNEL_ABI}), kmod-cfg80211, kmod-mac80211, kmod-usb-core"
+            echo "Source: package/kernel/rtw89-8922au-git"
+            echo "SourceName: rtw89-8922au-git"
+            echo "License: GPL-2.0 OR BSD-3-Clause"
+            echo "Section: kernel"
+            echo "Architecture: aarch64_cortex-a72"
+            echo "Installed-Size: $(du -k -s verify/data/lib | awk '{print $1}')"
+            echo "Description: Realtek RTL8912AU/RTL8922AU USB driver patched for iStoreOS RPi4 USB AP stability"
+          } > verify/control/control
 
-      - name: Upload stable .ipk artifact
+          tar -czf control.tar.gz -C verify/control .
+          tar -czf data.tar.gz -C verify/data .
+          printf '2.0\n' > debian-binary
+          out_ipk="out/${PKG_NAME}_${OUT_VERSION}_aarch64_cortex-a72.ipk"
+          tar -czf "$out_ipk" ./debian-binary ./control.tar.gz ./data.tar.gz
+          echo "OUT_IPK=$out_ipk" >> "$GITHUB_ENV"
+          ls -lh "$out_ipk"
+
+      - name: Upload patched .ipk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kmod-rtw89-8922au-stable-r3-istoreos-5642ee
+          name: kmod-rtw89-8922au-patched-r4-istoreos-5642ee
           path: out/*.ipk
-          retention-days: 30
+          retention-days: 14
 
       - name: Show build summary
         run: |
           {
-            echo '## Stable r3 package'
+            echo '## Patched r4 package'
             echo ''
             echo '- Target: iStoreOS 24.10.5 Raspberry Pi 4, kernel 6.6.119'
-            echo '- Kernel ABI: 6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1'
-            echo '- Module struct size: 0x280'
-            echo '- Artifact: kmod-rtw89-8922au-stable-r3-istoreos-5642ee'
-            echo ''
-            echo 'This workflow intentionally publishes the validated r3 package instead of the experimental vanilla-kbuild modules, which loaded but failed RTL8922AU firmware download on iStoreOS.'
+            echo '- Kernel ABI normalized to: 6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1'
+            echo '- Source: morrownr/rtw89 d2f175eafa0a4ef9cc65e7073a77e60238cae614'
+            echo '- Patches: USB AP MAC flush skip, RTL8922A USB DACK wait extension'
+            echo "- Output: ${OUT_IPK}"
           } >> "$GITHUB_STEP_SUMMARY"
