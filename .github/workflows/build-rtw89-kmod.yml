@@ -110,7 +110,6 @@ jobs:
             cmd_syscalls= \
             KBUILD_EXTRA_SYMBOLS="$PWD/$symvers" \
             CC="aarch64-openwrt-linux-musl-gcc" \
-            KERNELRELEASE=6.6.119 \
             EXTRA_CFLAGS="-I$PWD/$bp_dir/include -ffile-prefix-map=$PWD/$bp_dir=backports-6.12.61 " \
             KLIB_BUILD="$PWD/$linux_dir" \
             MODPROBE=true \
