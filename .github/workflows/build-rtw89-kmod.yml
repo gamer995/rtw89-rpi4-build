@@ -96,7 +96,7 @@ jobs:
           test -n "$symvers"
           test -n "$toolchain_bin"
           export PATH="$(dirname "$toolchain_bin"):$PATH"
-          make -C "$bp_dir" \
+          make -C "$bp_dir" -f Makefile.real \
             KCFLAGS="-ffile-prefix-map=$PWD/build_dir/target-aarch64_cortex-a72_musl=target-aarch64_cortex-a72_musl -fno-caller-saves " \
             CROSS_COMPILE="aarch64-openwrt-linux-musl-" \
             ARCH="arm64" \
