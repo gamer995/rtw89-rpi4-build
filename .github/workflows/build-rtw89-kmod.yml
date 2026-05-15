@@ -175,7 +175,7 @@ jobs:
             fi
           }
 
-          assert_dep_set verify/data/lib/modules/6.6.119/rtw89_core_git.ko 'mac80211,cfg80211'
+          assert_dep_set verify/data/lib/modules/6.6.119/rtw89_core_git.ko 'mac80211,cfg80211,compat'
           assert_dep_set verify/data/lib/modules/6.6.119/rtw89_usb_git.ko 'rtw89_core_git,mac80211'
           assert_dep_set verify/data/lib/modules/6.6.119/rtw89_8922a_git.ko 'rtw89_core_git,cfg80211'
           assert_dep_set verify/data/lib/modules/6.6.119/rtw89_8922au_git.ko 'rtw89_8922a_git,rtw89_usb_git'
