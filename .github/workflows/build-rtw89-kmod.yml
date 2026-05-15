@@ -152,19 +152,33 @@ jobs:
             echo "$ko: .gnu.linkonce.this_module=0x${size_hex}"
           done
 
-          strings verify/data/lib/modules/6.6.119/rtw89_core_git.ko \
-            | grep -qx 'depends=mac80211,cfg80211'
-          strings verify/data/lib/modules/6.6.119/rtw89_usb_git.ko \
-            | grep -qx 'depends=rtw89_core_git,mac80211'
-          strings verify/data/lib/modules/6.6.119/rtw89_8922a_git.ko \
-            | grep -qx 'depends=rtw89_core_git,cfg80211'
-          strings verify/data/lib/modules/6.6.119/rtw89_8922au_git.ko \
-            | grep -qx 'depends=rtw89_8922a_git,rtw89_usb_git'
-
           for ko in verify/data/lib/modules/6.6.119/*.ko; do
             echo "$(basename "$ko") modinfo:"
-            strings "$ko" | grep -E '^(name=|depends=|vermagic=)' | sort
+            strings "$ko" | grep -E '^(name=|depends=|vermagic=)' | sort || true
           done
+
+          dep_set() {
+            strings "$1" \
+              | awk -F= '$1 == "depends" { print $2; exit }' \
+              | tr ',' '\n' \
+              | sort \
+              | paste -sd, -
+          }
+
+          assert_dep_set() {
+            ko="$1"
+            expected=$(printf '%s' "$2" | tr ',' '\n' | sort | paste -sd, -)
+            actual=$(dep_set "$ko")
+            if [ "$actual" != "$expected" ]; then
+              echo "Unexpected depends for $(basename "$ko"): got '$actual', expected '$expected'" >&2
+              exit 1
+            fi
+          }
+
+          assert_dep_set verify/data/lib/modules/6.6.119/rtw89_core_git.ko 'mac80211,cfg80211'
+          assert_dep_set verify/data/lib/modules/6.6.119/rtw89_usb_git.ko 'rtw89_core_git,mac80211'
+          assert_dep_set verify/data/lib/modules/6.6.119/rtw89_8922a_git.ko 'rtw89_core_git,cfg80211'
+          assert_dep_set verify/data/lib/modules/6.6.119/rtw89_8922au_git.ko 'rtw89_8922a_git,rtw89_usb_git'
 
           {
             echo "Package: ${PKG_NAME}"
