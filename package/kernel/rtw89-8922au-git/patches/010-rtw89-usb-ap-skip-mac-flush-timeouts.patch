@@ -14,6 +14,19 @@ teardown paths. This avoids corrupting MAC/DLE state after client
 disconnects, which otherwise can stop beaconing and make the SSID
 disappear.
 ---
+diff --git a/mac.c b/mac.c
+--- a/mac.c
++++ b/mac.c
+@@ -6261,6 +6261,9 @@ void rtw89_mac_flush_txq(struct rtw89_dev *rtwdev, u32 queues, bool drop)
+ 	if (!test_bit(RTW89_FLAG_POWERON, rtwdev->flags))
+ 		return;
+ 
++	if (rtwdev->hci.type == RTW89_HCI_TYPE_USB)
++		return;
++
+ 	ret = read_poll_timeout(dle_is_txq_empty, empty, empty,
+ 				10000, 200000, false, rtwdev);
+ 	if (ret && !drop && (rtwdev->total_sta_assoc || rtwdev->scanning))
 diff --git a/core.c b/core.c
 --- a/core.c
 +++ b/core.c

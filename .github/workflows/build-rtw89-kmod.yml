@@ -16,7 +16,7 @@ jobs:
     env:
       SDK_URL: https://downloads.openwrt.org/releases/24.10.5/targets/bcm27xx/bcm2711/openwrt-sdk-24.10.5-bcm27xx-bcm2711_gcc-13.3.0_musl.Linux-x86_64.tar.zst
       KERNEL_ABI: 6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1
-      OUT_VERSION: 6.6.119.2026.05.15~d2f175ea-r5
+      OUT_VERSION: 6.6.119.2026.05.15~d2f175ea-r6
       PKG_NAME: kmod-rtw89-8922au-git
 
     steps:
@@ -111,14 +111,14 @@ jobs:
       - name: Upload patched .ipk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kmod-rtw89-8922au-patched-r5-istoreos-5642ee
+          name: kmod-rtw89-8922au-patched-r6-istoreos-5642ee
           path: out/*.ipk
           retention-days: 14
 
       - name: Show build summary
         run: |
           {
-            echo '## Patched r5 package'
+            echo '## Patched r6 package'
             echo ''
             echo '- Target: iStoreOS 24.10.5 Raspberry Pi 4, kernel 6.6.119'
             echo '- Kernel ABI normalized to: 6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1'
