@@ -1,6 +1,6 @@
 # rtw89-rpi4-build
 
-为 iStoreOS (Raspberry Pi 4) 构建 patched 版 **COMFAST CF-983BE** (RTL8922AU / WiFi 7) USB 网卡内核模块。
+为 iStoreOS (Raspberry Pi 4) 发布 patched 版 **COMFAST CF-983BE** (RTL8922AU / WiFi 7) USB 网卡内核模块。
 
 [![Build rtw89-8922au kmod](https://github.com/gamer995/rtw89-rpi4-build/actions/workflows/build-rtw89-kmod.yml/badge.svg)](https://github.com/gamer995/rtw89-rpi4-build/actions/workflows/build-rtw89-kmod.yml)
 
@@ -26,11 +26,28 @@
 
 补丁通过新增的 `rtw89_is_usb_ap()` 辅助函数判断是否需要跳过。
 
+## 当前稳定版本
+
+当前可用版本是仓库内的 r3 稳定基线包：
+
+```text
+known-good/kmod-rtw89-8922au-git_6.6.119_d2f175ea-r3_kernel-5642ee_iStoreOS-AP-fix_2026-03-17.ipk
+```
+
+这个包已在 iStoreOS 24.10.5 / Raspberry Pi 4 / kernel `6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1` 上验证：
+
+- `rtw89_core_git.ko` / `rtw89_usb_git.ko` / `rtw89_8922a_git.ko` / `rtw89_8922au_git.ko` 可加载
+- `.gnu.linkonce.this_module` 大小为 `0x280`
+- USB3 `5000M` 下可创建 AP，SSID `RaspberryPi`
+- 已包含 USB AP 队列 flush 修复
+
+此前的裸 Linux kbuild CI 产物虽然能绕过 `struct module` 大小错误，但不是用 iStoreOS/OpenWrt 的 kbuild 和 mac80211 符号环境产出，实际加载 RTL8922AU 时会出现固件下载失败或重启。现在 Actions 只校验并发布这个稳定 r3 包，避免误装试验模块。
+
 ## 快速使用
 
 ### 下载预构建 .ipk
 
-从 [GitHub Actions](https://github.com/gamer995/rtw89-rpi4-build/actions) 最新成功运行的 Artifacts 下载 `kmod-rtw89-8922au-patched`。
+从 [GitHub Actions](https://github.com/gamer995/rtw89-rpi4-build/actions) 最新成功运行的 Artifacts 下载 `kmod-rtw89-8922au-stable-r3-istoreos-5642ee`。
 
 ### 安装
 
@@ -117,33 +134,17 @@ config wifi-iface 'default_radio2'
 └── *.txt                      # 版本说明
 ```
 
-## 构建
+## CI (GitHub Actions)
 
-### 本地
+推送代码到 `main` 分支即自动触发校验。Workflow 会：
 
-```bash
-# 1. 准备 Linux 6.6.119 内核源码（arm64 交叉编译）
-# 2. 克隆 morrownr/rtw89
-git clone https://github.com/morrownr/rtw89.git
-cd rtw89
+1. 解包 `known-good/` 中的 r3 稳定 `.ipk`
+2. 验证 control 中的 iStoreOS kernel ABI 依赖
+3. 验证四个 `.ko` 的 `struct module` section 大小为 `0x280`
+4. 验证模块依赖仍包含 `mac80211` / `cfg80211`
+5. 上传稳定 `.ipk` Artifact
 
-# 3. 应用补丁
-python3 ../apply_patches.py
-
-# 4. 编译
-make -C /path/to/linux-6.6.119 M=$(pwd) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) KBUILD_MODPOST_WARN=1
-```
-
-### CI (GitHub Actions)
-
-推送代码到 `main` 分支即自动触发构建。Workflow 会：
-
-1. 下载 Linux 6.6.119 源码
-2. 准备 arm64 交叉编译环境
-3. 应用 `apply_patches.py`
-4. 编译 rtw89 模块
-5. 重新打包为 `.ipk`
-6. 上传 Artifact
+如果后续能拿到同一套 iStoreOS SDK/kbuild，可以再恢复源码构建；不要使用裸 Linux 6.6.119 kbuild 直接生成生产模块。
 
 ## 许可证
 

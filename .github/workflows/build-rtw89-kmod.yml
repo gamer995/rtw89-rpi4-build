@@ -1,306 +1,90 @@
-name: Build rtw89-8922au kmod for iStoreOS RPi4
+name: Package stable rtw89-8922au kmod for iStoreOS RPi4
 
-# 手动触发，或推送 patch 文件时触发
 on:
   workflow_dispatch:
   push:
     paths:
-      - '*.patch'
       - '.github/workflows/build-rtw89-kmod.yml'
-      - 'apply_patches.py'
-      - 'patch_backports_api.py'
-      - 'patch_probe_diag.py'
-      - 'patch_sync_firmware_load.py'
-      - 'prepare_backports_header.py'
+      - 'known-good/*.ipk'
+      - 'README.md'
 
 jobs:
-  build:
-    name: Compile rtw89 8922AU kernel module
+  package:
+    name: Verify and publish stable r3 package
     runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        probe_diag:
-          - none
+
+    env:
+      GOOD_IPK: known-good/kmod-rtw89-8922au-git_6.6.119_d2f175ea-r3_kernel-5642ee_iStoreOS-AP-fix_2026-03-17.ipk
+      KERNEL_DEPENDS: 'Depends: kernel (=6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1), kmod-cfg80211, kmod-mac80211, kmod-usb-core'
 
     steps:
-      # ── 1. 拉取本仓库（含 patch 文件）──────────────────────────
-      - name: Checkout patches
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. 安装依赖 ────────────────────────────────────────────
-      - name: Install build dependencies
+      - name: Install verification tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            build-essential gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-            libelf-dev libssl-dev bc flex bison pahole \
-            git curl wget ca-certificates xz-utils
+            binutils-aarch64-linux-gnu
 
-      # ── 3. 下载并解压 Linux 6.6.119 内核源码（缓存友好）────────
-      - name: Cache Linux 6.6.119 source
-        id: cache-kernel
-        uses: actions/cache@v4
-        with:
-          path: linux-6.6.119
-          key: linux-6.6.119-source
-
-      - name: Download Linux 6.6.119
-        if: steps.cache-kernel.outputs.cache-hit != 'true'
+      - name: Verify known-good iStoreOS package
         run: |
-          wget -q https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.119.tar.xz
-          tar -xf linux-6.6.119.tar.xz
-          rm linux-6.6.119.tar.xz
+          set -eu
 
-      # ── 4. 缓存编译好的内核头文件 ─────────────────────────────
-      - name: Cache prepared kernel build dir
-        id: cache-kbuild
-        uses: actions/cache@v4
-        with:
-          path: linux-6.6.119/.build
-          # key 含 config hash，config 变化时自动重建
-          key: linux-6.6.119-kbuild-v21
+          test -s "$GOOD_IPK"
 
-      - name: Prepare kernel build dir (arm64, SMP, no modversions)
-        if: steps.cache-kbuild.outputs.cache-hit != 'true'
-        run: |
-          cd linux-6.6.119
-          # 生成 aarch64 基础配置，然后覆盖关键选项
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig O=.build
-          # 确保 vermagic = "6.6.119 SMP mod_unload aarch64"（与 iStoreOS 运行内核一致）
-          # 同时禁用会扩大 struct module 大小的选项，使其与 iStoreOS 的 832 字节相匹配。
-          # iStoreOS (OpenWrt) generic/config-6.6 明确禁用了：
-          #   KALLSYMS, KPROBES, JUMP_LABEL, DYNAMIC_DEBUG_CORE, STACKTRACE_BUILD_ID
-          # iStoreOS 不开启 FTRACE/TRACING 相关选项（arm64 defconfig 默认开启）
-          scripts/config --file .build/.config \
-            --enable  CONFIG_MODULES \
-            --enable  CONFIG_MODULE_UNLOAD \
-            --disable CONFIG_MODVERSIONS \
-            --disable CONFIG_MODULE_SIG \
-            --disable CONFIG_PREEMPT \
-            --disable CONFIG_PREEMPT_DYNAMIC \
-            --enable  CONFIG_PREEMPT_NONE \
-            --enable  CONFIG_SMP \
-            --disable CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT \
-            --disable CONFIG_DEBUG_INFO_BTF \
-            --disable CONFIG_VMAP_STACK \
-            --disable CONFIG_STACKTRACE \
-            --disable CONFIG_KALLSYMS_ALL \
-            --disable CONFIG_KALLSYMS \
-            --disable CONFIG_KPROBES \
-            --disable CONFIG_JUMP_LABEL \
-            --disable CONFIG_DYNAMIC_DEBUG \
-            --disable CONFIG_DYNAMIC_DEBUG_CORE \
-            --disable CONFIG_STACKTRACE_BUILD_ID \
-            --disable CONFIG_FTRACE \
-            --disable CONFIG_FUNCTION_TRACER \
-            --disable CONFIG_TRACING \
-            --disable CONFIG_EVENT_TRACING \
-            --disable CONFIG_TRACEPOINTS \
-            --enable  CONFIG_MAC80211_DEBUGFS \
-            --disable CONFIG_NL80211_TESTMODE \
-            --disable CONFIG_BPF_EVENTS \
-            --disable CONFIG_TREE_SRCU \
-            --disable CONFIG_PRINTK_INDEX \
-            --disable CONFIG_FUNCTION_ERROR_INJECTION \
-            --disable CONFIG_PERF_EVENTS \
-            --disable CONFIG_PROFILING
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-               O=.build olddefconfig
-          # 只生成 modules.builtin / Module.symvers 等编译元数据，不编译镜像
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-               O=.build modules_prepare -j$(nproc)
-          # 修复：从 autoconf.h 中移除 iStoreOS 内核没有的功能定义，避免链接到不存在的符号。
-          # kbuild-v10 已解决 struct module 大小（640 字节匹配 iStoreOS）。
-          # kbuild-v11 额外移除 ACPI/DMI/RFKILL，因为 iStoreOS bcm2711 内核没有这些：
-          #   - acpi_evaluate_object 不在 iStoreOS 内核（无 ACPI 支持，ARM/RPi 用设备树）
-          #   - dmi_first_match 不在 iStoreOS 内核（无 DMI 支持）
-          #   - rfkill_pause_polling 不在 iStoreOS 内核（rfkill 核心未内置）
-          AUTOCONF=".build/include/generated/autoconf.h"
-          sed -i \
-            -e '/^#define CONFIG_KALLSYMS /d' \
-            -e '/^#define CONFIG_KALLSYMS_BASE_RELATIVE /d' \
-            -e '/^#define CONFIG_STACKTRACE /d' \
-            -e '/^#define CONFIG_MODULES_TREE_LOOKUP /d' \
-            -e '/^#define CONFIG_PERF_EVENTS /d' \
-            -e '/^#define CONFIG_GUEST_PERF_EVENTS /d' \
-            -e '/^#define CONFIG_HW_PERF_EVENTS /d' \
-            -e '/^#define CONFIG_ACPI /d' \
-            -e '/^#define CONFIG_DMI /d' \
-            -e '/^#define CONFIG_RFKILL_MODULE /d' \
-            -e '/^#define CONFIG_RFKILL_INPUT /d' \
-            -e '/^#define CONFIG_RFKILL_LEDS /d' \
-            "$AUTOCONF"
-          # iStoreOS 有 TRACEPOINTS=y（tracepoint_probe_register 在 kallsyms 中确认）
-          printf '\n#define CONFIG_TRACEPOINTS 1\n' >> "$AUTOCONF"
-          echo "=== autoconf.h: struct-module relevant defines after patch ==="
-          grep -E "KALLSYMS|STACKTRACE|MODULES_TREE|PERF_EVENTS|TRACEPOINTS|TREE_SRCU|IPV6" "$AUTOCONF" | sort
+          rm -rf verify out
+          mkdir -p verify/control verify/data out
 
-          # 备份最终状态供诊断
-          cp .build/.config /tmp/kbuild-final.config
-          cp "$AUTOCONF" /tmp/kbuild-autoconf.h
+          tar -xzf "$GOOD_IPK" -C verify
+          tar -xzf verify/control.tar.gz -C verify/control
+          tar -xzf verify/data.tar.gz -C verify/data
 
-      # ── 4b. 上传 .config 和 autoconf.h 供诊断 ─────────────────
-      - name: Upload final .config as artifact
+          grep -qx 'Package: kmod-rtw89-8922au-git' verify/control/control
+          grep -qx 'Version: 6.6.119.2026.03.05~d2f175ea-r3' verify/control/control
+          grep -qx "$KERNEL_DEPENDS" verify/control/control
+
+          for ko in \
+            rtw89_core_git.ko \
+            rtw89_usb_git.ko \
+            rtw89_8922a_git.ko \
+            rtw89_8922au_git.ko
+          do
+            ko_path="verify/data/lib/modules/6.6.119/$ko"
+            test -s "$ko_path"
+            size_hex=$(aarch64-linux-gnu-objdump -h "$ko_path" \
+              | awk '$2 == ".gnu.linkonce.this_module" { print $3 }')
+            test "$size_hex" = "00000280"
+            echo "$ko: .gnu.linkonce.this_module=0x${size_hex}"
+          done
+
+          strings verify/data/lib/modules/6.6.119/rtw89_core_git.ko \
+            | grep -qx 'depends=mac80211,cfg80211'
+          strings verify/data/lib/modules/6.6.119/rtw89_usb_git.ko \
+            | grep -qx 'depends=rtw89_core_git,mac80211'
+          strings verify/data/lib/modules/6.6.119/rtw89_8922a_git.ko \
+            | grep -qx 'depends=rtw89_core_git,cfg80211'
+          strings verify/data/lib/modules/6.6.119/rtw89_8922au_git.ko \
+            | grep -qx 'depends=rtw89_8922a_git,rtw89_usb_git'
+
+          cp "$GOOD_IPK" out/
+
+      - name: Upload stable .ipk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kbuild-dotconfig
-          path: |
-            /tmp/kbuild-final.config
-            /tmp/kbuild-autoconf.h
-          retention-days: 3
-
-      # ── 4c. 用 backports-6.12.61 的无线头文件对齐 iStoreOS ABI ──
-      - name: Replace wireless headers with backports-6.12.61 versions
-        run: |
-          BP_VER="6.12.61"
-          BP_HASH="9db2f836dba7f38ad68f8798720ad4360bce6a3557bde02b88b3a4f068c77118"
-          BP_URL="http://mirror2.openwrt.org/sources/backports-${BP_VER}.tar.xz"
-          echo "Downloading backports-${BP_VER}..."
-          wget -q "$BP_URL" -O backports.tar.xz
-          echo "${BP_HASH}  backports.tar.xz" | sha256sum -c
-          tar -xf backports.tar.xz
-
-          # Linux 6.6 has asm/unaligned.h, while backports-6.12 mac80211.h
-          # includes linux/unaligned.h. Do not copy all backport headers here:
-          # they are include_next wrappers and break a standalone kernel tree.
-          printf '#include <asm/unaligned.h>\n' > linux-6.6.119/include/linux/unaligned.h
-
-          python3 prepare_backports_header.py \
-            "backports-${BP_VER}/include/net/mac80211.h" \
-            linux-6.6.119/include/net/mac80211.h
-          echo "=== Key fields in backports mac80211.h ==="
-          awk '/^struct ieee80211_ops \{/,/^\};/' linux-6.6.119/include/net/mac80211.h \
-            | grep "(\*" | nl -v0 | grep -E "wake_tx_queue|vif_cfg_changed|link_info_changed|sta_state|sta_add|add_chanctx|ipv6_addr"
-
-      # ── 5. 克隆 morrownr/rtw89 驱动（固定到 d2f175ea 提交）────
-      #    每次都新鲜 clone，避免缓存包含旧的编译产物（.o/.a/.ko）
-      #    导致 make 跳过重编译，patch 无法真正进入最终 .ko
-      - name: Clone morrownr/rtw89 driver source
-        run: |
-          rm -rf rtw89
-          git init rtw89
-          cd rtw89
-          git remote add origin https://github.com/morrownr/rtw89.git
-          git fetch --depth 1 origin d2f175eafa0a4ef9cc65e7073a77e60238cae614
-          git checkout FETCH_HEAD
-          echo "=== morrownr/rtw89 driver files ==="
-          ls *.c | wc -l
-
-      # ── 6. 应用修改（基于内容搜索，不依赖行号）──────────────
-      - name: Apply patches
-        env:
-          RTW89_PROBE_DIAG: ${{ matrix.probe_diag }}
-        run: |
-          python3 apply_patches.py
-          python3 patch_backports_api.py
-          python3 patch_sync_firmware_load.py
-          python3 patch_probe_diag.py
-          echo "=== Patched mac80211.c md5 ==="
-          md5sum rtw89/mac80211.c
-
-      # ── 7. 编译内核模块 ───────────────────────────────────────
-      #    morrownr/rtw89 Makefile 已有 obj-m += rtw89_*_git.o 定义
-      #    KBUILD_MODPOST_WARN=1: 将 undefined symbol 错误降为警告
-      #    （out-of-tree 构建时 Module.symvers 不含 mac80211/cfg80211 符号，属正常现象）
-      - name: Build rtw89 kernel modules
-        run: |
-          set -o pipefail
-          make -C linux-6.6.119/.build \
-               M="$(pwd)/rtw89" \
-               ARCH=arm64 \
-               CROSS_COMPILE=aarch64-linux-gnu- \
-               KBUILD_MODPOST_WARN=1 \
-               -j$(nproc) 2>&1 | tee /tmp/build.log
-
-          echo "=== Build result ==="
-          find rtw89 -name "*.ko" -exec ls -lh {} \; || {
-            echo "ERROR: no .ko built. Last 40 lines of build log:"
-            tail -40 /tmp/build.log
-            exit 1
-          }
-
-          echo "=== struct module size (.gnu.linkonce.this_module section) ==="
-          for ko in rtw89/rtw89_core_git.ko rtw89/rtw89_usb_git.ko; do
-            if [ -f "$ko" ]; then
-              size_hex=$(aarch64-linux-gnu-objdump -h "$ko" 2>/dev/null \
-                | awk '/this_module/{print $3}')
-              size_dec=$(printf '%d' "0x${size_hex}" 2>/dev/null || echo "?")
-              if [ "$size_dec" = "640" ]; then
-                echo "$ko: size=${size_dec} (0x${size_hex}) -- OK matches iStoreOS"
-              else
-                echo "$ko: size=${size_dec} (0x${size_hex}) -- MISMATCH iStoreOS expects 640/0x280"
-              fi
-            fi
-          done
-
-      # ── 8. 重新打包为 .ipk ───────────────────────────────────
-      - name: Repack into .ipk
-        run: |
-          set -e
-          KVER="6.6.119"
-          PKGVER="6.6.119.$(date +%Y.%m.%d)~d2f175ea-${{ matrix.probe_diag }}-r30"
-          PKGNAME="kmod-rtw89-8922au-git"
-          ARCH="aarch64_cortex-a72"
-          OUTDIR="ipk-staging"
-
-          mkdir -p "$OUTDIR/lib/modules/$KVER"
-          # 查找编译生成的 .ko 文件（支持不同编译输出路径）
-          for ko in rtw89_core_git rtw89_usb_git rtw89_8922a_git rtw89_8922au_git; do
-            found=$(find rtw89 -name "${ko}.ko" | head -1)
-            if [ -n "$found" ]; then
-              cp "$found" "$OUTDIR/lib/modules/$KVER/"
-              echo "Copied: $found"
-            else
-              echo "WARNING: $ko.ko not found!"
-            fi
-          done
-
-          echo "=== Vermagic of compiled modules ==="
-          for ko in "$OUTDIR/lib/modules/$KVER/"*.ko; do
-            printf "%s: " "$(basename "$ko")"
-            aarch64-linux-gnu-objdump -j .modinfo -s "$ko" 2>/dev/null \
-              | grep -o 'vermagic=[^ ]*[^.]*' | head -1 || echo "(unknown)"
-          done
-
-          mkdir -p "$OUTDIR/CONTROL"
-          cat > "$OUTDIR/CONTROL/control" << EOF
-          Package: $PKGNAME
-          Version: $PKGVER
-          Depends: kernel (=$(KVER))
-          Architecture: $ARCH
-          Description: RTW89 8922AU Wi-Fi 7 USB driver (patched: 0003+0004 USB AP fix)
-          EOF
-
-          # 打包 data.tar.gz
-          pushd "$OUTDIR" > /dev/null
-          find lib -type f | sort | tar -czf ../data.tar.gz -T -
-          tar -czf ../control.tar.gz -C CONTROL .
-          popd > /dev/null
-
-          printf '2.0\n' > debian-binary
-          IPKFILE="${PKGNAME}_${PKGVER}_${ARCH}.ipk"
-          tar -czf "$IPKFILE" ./debian-binary ./control.tar.gz ./data.tar.gz
-          echo "Created: $IPKFILE ($(du -h "$IPKFILE" | cut -f1))"
-          echo "IPKFILE=$IPKFILE" >> "$GITHUB_ENV"
-
-      # ── 9. 上传 artifact ──────────────────────────────────────
-      - name: Upload .ipk artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: kmod-rtw89-8922au-${{ matrix.probe_diag }}
-          path: "*.ipk"
-          retention-days: 14
+          name: kmod-rtw89-8922au-stable-r3-istoreos-5642ee
+          path: out/*.ipk
+          retention-days: 30
 
       - name: Show build summary
         run: |
-          echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Kernel: 6.6.119 (arm64 SMP mod_unload aarch64)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Patches applied: 0003 + 0004 (USB AP ops-flush fix)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Output: $IPKFILE" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Install on RPi:" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "scp $IPKFILE root@192.168.7.127:/tmp/" >> "$GITHUB_STEP_SUMMARY"
-          echo "ssh root@192.168.7.127 'opkg install --force-reinstall /tmp/$IPKFILE'" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '## Stable r3 package'
+            echo ''
+            echo '- Target: iStoreOS 24.10.5 Raspberry Pi 4, kernel 6.6.119'
+            echo '- Kernel ABI: 6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1'
+            echo '- Module struct size: 0x280'
+            echo '- Artifact: kmod-rtw89-8922au-stable-r3-istoreos-5642ee'
+            echo ''
+            echo 'This workflow intentionally publishes the validated r3 package instead of the experimental vanilla-kbuild modules, which loaded but failed RTL8922AU firmware download on iStoreOS.'
+          } >> "$GITHUB_STEP_SUMMARY"

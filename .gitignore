@@ -1,5 +1,7 @@
-# 不上传大二进制文件
+# 不上传大二进制文件，稳定基线包除外
 *.ipk
+!known-good/
+!known-good/kmod-rtw89-8922au-git_6.6.119_d2f175ea-r3_kernel-5642ee_iStoreOS-AP-fix_2026-03-17.ipk
 *.ko
 *.tar.gz
 *.tar.xz
