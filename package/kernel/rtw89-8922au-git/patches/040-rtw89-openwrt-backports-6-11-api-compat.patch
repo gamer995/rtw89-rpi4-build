@@ -78,15 +78,6 @@ diff --git a/debug.c b/debug.c
  	p += rtw89_debug_priv_txpwr_table_get_regd(rtwdev, p, end - p, chan);
  #else
  	p += scnprintf(p, end - p, "[Regulatory] ");
-@@ -4489,7 +4489,7 @@ rtw89_debug_priv_mlo_mode_get(struct rtw89_dev *rtwdev,
- 	int count = 0;
- 
- 	p += scnprintf(p, end - p, "MLD(s) status: (MLO DM: %s)\n",
--#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
-+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0) || defined(CPTCFG_VERSION)
- 		       str_disable_enable(mlo_dm_dis));
- #else
- 		       str_enable_disable(!mlo_dm_dis));
 diff --git a/mac80211.c b/mac80211.c
 --- a/mac80211.c
 +++ b/mac80211.c
