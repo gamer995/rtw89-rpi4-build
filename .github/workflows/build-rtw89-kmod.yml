@@ -59,7 +59,13 @@ jobs:
           make defconfig
           make package/kernel/mac80211/prepare V=s
 
-      - name: Replace backports rtw89 with morrownr patched source
+      - name: Compile OpenWrt mac80211 backports
+        run: |
+          set -eu
+          cd sdk
+          make package/kernel/mac80211/compile V=s -j"$(nproc)"
+
+      - name: Build morrownr rtw89 against compiled backports ABI
         run: |
           set -eu
           git clone https://github.com/morrownr/rtw89.git rtw89-src
@@ -70,7 +76,7 @@ jobs:
             git -C rtw89-src apply "$GITHUB_WORKSPACE/$p"
           done
 
-          bp_dir=$(find sdk/build_dir -path '*/backports-6.12.61' -type d | head -1)
+          bp_dir=$(find sdk/build_dir -path '*/mac80211-regular/backports-6.12.61' -type d | head -1)
           test -n "$bp_dir"
           rm -rf "$bp_dir/drivers/net/wireless/realtek/rtw89"
           mkdir -p "$bp_dir/drivers/net/wireless/realtek"
@@ -80,11 +86,39 @@ jobs:
           grep -R "skip MAC flush for USB" -n "$bp_dir/drivers/net/wireless/realtek/rtw89" || true
           grep -R "extend RF DACK wait" -n "$bp_dir/drivers/net/wireless/realtek/rtw89"
 
-      - name: Compile patched rtw89 in mac80211 backports
-        run: |
-          set -eu
           cd sdk
-          make package/kernel/mac80211/compile V=s -j"$(nproc)"
+          bp_dir=$(find build_dir -path '*/mac80211-regular/backports-6.12.61' -type d | head -1)
+          linux_dir=$(find build_dir -path '*/linux-bcm27xx_bcm2711/linux-6.6.119' -type d | head -1)
+          symvers=$(find build_dir -path '*/symvers/mac80211.symvers' -type f | head -1)
+          toolchain_bin=$(find staging_dir -path '*/bin/aarch64-openwrt-linux-musl-gcc' -type f | head -1)
+          test -n "$bp_dir"
+          test -n "$linux_dir"
+          test -n "$symvers"
+          test -n "$toolchain_bin"
+          export PATH="$(dirname "$toolchain_bin"):$PATH"
+          make -C "$bp_dir" \
+            KCFLAGS="-ffile-prefix-map=$PWD/build_dir/target-aarch64_cortex-a72_musl=target-aarch64_cortex-a72_musl -fno-caller-saves " \
+            CROSS_COMPILE="aarch64-openwrt-linux-musl-" \
+            ARCH="arm64" \
+            KBUILD_HAVE_NLS=no \
+            KBUILD_BUILD_USER="builder" \
+            KBUILD_BUILD_HOST="buildhost" \
+            KBUILD_BUILD_TIMESTAMP="Wed Dec 17 21:08:22 2025" \
+            KBUILD_BUILD_VERSION="0" \
+            CONFIG_SHELL="bash" \
+            V=1 \
+            cmd_syscalls= \
+            KBUILD_EXTRA_SYMBOLS="$PWD/$symvers" \
+            CC="aarch64-openwrt-linux-musl-gcc" \
+            KERNELRELEASE=6.6.119 \
+            EXTRA_CFLAGS="-I$PWD/$bp_dir/include -ffile-prefix-map=$PWD/$bp_dir=backports-6.12.61 " \
+            KLIB_BUILD="$PWD/$linux_dir" \
+            MODPROBE=true \
+            KLIB=/lib/modules/6.6.119 \
+            KERNEL_SUBLEVEL=6 \
+            KBUILD_LDFLAGS_MODULE_PREREQ= \
+            modules
+          find "$bp_dir/drivers/net/wireless/realtek/rtw89" -maxdepth 1 -name 'rtw89*_git.ko' -print -exec ls -lh {} \;
 
       - name: Package and verify iStoreOS modules
         run: |
@@ -92,8 +126,9 @@ jobs:
           rm -rf out verify/data verify/control
           mkdir -p out verify/data/lib/modules/6.6.119 verify/control
 
-          bp_dir=$(find sdk/build_dir -path '*/backports-6.12.61' -type d | head -1)
+          bp_dir=$(find sdk/build_dir -path '*/mac80211-regular/backports-6.12.61' -type d | head -1)
           rtw_dir="$bp_dir/drivers/net/wireless/realtek/rtw89"
+          find "$rtw_dir" -maxdepth 1 -name '*.ko' -print | sort
 
           for ko in \
             rtw89_core_git.ko \
