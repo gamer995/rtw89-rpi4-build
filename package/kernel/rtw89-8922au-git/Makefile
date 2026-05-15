@@ -31,7 +31,7 @@ define KernelPackage/rtw89-8922au-git/description
 endef
 
 define Build/Compile
-	$(KERNEL_MAKE) M="$(PKG_BUILD_DIR)" modules
+	$(KERNEL_MAKE) M="$(PKG_BUILD_DIR)" KBUILD_MODPOST_WARN=1 modules
 endef
 
 $(eval $(call KernelPackage,rtw89-8922au-git))

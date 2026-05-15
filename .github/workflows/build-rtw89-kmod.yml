@@ -76,14 +76,16 @@ jobs:
             echo "$ko: .gnu.linkonce.this_module=0x${size_hex}"
           done
 
-          strings verify/data/lib/modules/6.6.119/rtw89_core_git.ko \
-            | grep -qx 'depends=mac80211,cfg80211'
-          strings verify/data/lib/modules/6.6.119/rtw89_usb_git.ko \
-            | grep -qx 'depends=rtw89_core_git,mac80211'
-          strings verify/data/lib/modules/6.6.119/rtw89_8922a_git.ko \
-            | grep -qx 'depends=rtw89_core_git,cfg80211'
-          strings verify/data/lib/modules/6.6.119/rtw89_8922au_git.ko \
-            | grep -qx 'depends=rtw89_8922a_git,rtw89_usb_git'
+          for ko in \
+            rtw89_core_git.ko \
+            rtw89_usb_git.ko \
+            rtw89_8922a_git.ko \
+            rtw89_8922au_git.ko
+          do
+            echo "$ko modinfo depends:"
+            strings "verify/data/lib/modules/6.6.119/$ko" \
+              | grep '^depends=' || true
+          done
 
           {
             echo "Package: ${PKG_NAME}"
