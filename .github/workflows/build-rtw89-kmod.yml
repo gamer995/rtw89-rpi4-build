@@ -95,6 +95,10 @@ jobs:
           test -n "$linux_dir"
           test -n "$symvers"
           test -n "$toolchain_bin"
+          case "$toolchain_bin" in
+            /*) ;;
+            *) toolchain_bin="$PWD/$toolchain_bin" ;;
+          esac
           toolchain_dir=$(dirname "$toolchain_bin")
           export PATH="$toolchain_dir:$PATH"
           "$toolchain_bin" --version | head -1
