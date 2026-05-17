@@ -18,7 +18,7 @@ jobs:
       OPENWRT_REF: v24.10.5
       RTW89_REF: d2f175eafa0a4ef9cc65e7073a77e60238cae614
       KERNEL_ABI: 6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1
-      OUT_VERSION: 6.6.119.2026.05.15~d2f175ea-r7
+      OUT_VERSION: 6.6.119.2026.05.17~d2f175ea-r8
       PKG_NAME: kmod-rtw89-8922au-git
 
     steps:
@@ -85,6 +85,7 @@ jobs:
           echo "Backports tree: $bp_dir"
           grep -R "skip MAC flush for USB" -n "$bp_dir/drivers/net/wireless/realtek/rtw89" || true
           grep -R "extend RF DACK wait" -n "$bp_dir/drivers/net/wireless/realtek/rtw89"
+          grep -R "extend RF TSSI wait" -n "$bp_dir/drivers/net/wireless/realtek/rtw89"
 
           cd sdk
           bp_dir=$(find build_dir -path '*/mac80211-regular/backports-6.12.61' -type d | head -1)
@@ -204,19 +205,19 @@ jobs:
       - name: Upload patched .ipk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kmod-rtw89-8922au-patched-r7-backports-istoreos-5642ee
+          name: kmod-rtw89-8922au-patched-r8-backports-istoreos-5642ee
           path: out/*.ipk
           retention-days: 14
 
       - name: Show build summary
         run: |
           {
-            echo '## Patched r7 package'
+            echo '## Patched r8 package'
             echo ''
             echo '- Target: iStoreOS 24.10.5 Raspberry Pi 4, kernel 6.6.119'
             echo '- Build path: OpenWrt mac80211 backports-6.12.61 package, with morrownr/rtw89 substituted into the backports rtw89 directory'
             echo '- Kernel ABI normalized to: 6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1'
             echo '- Source: morrownr/rtw89 d2f175eafa0a4ef9cc65e7073a77e60238cae614'
-            echo '- Patches: USB MAC flush skip, RTL8922A USB DACK wait extension'
+            echo '- Patches: USB MAC flush skip, RTL8922A DACK wait extension, RTL8922A normal TSSI wait extension, OpenWrt backports API compatibility'
             echo "- Output: ${OUT_IPK}"
           } >> "$GITHUB_STEP_SUMMARY"

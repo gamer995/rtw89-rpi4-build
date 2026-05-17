@@ -1,114 +1,163 @@
 # rtw89-rpi4-build
 
-为 iStoreOS (Raspberry Pi 4) 构建 patched 版 **COMFAST CF-983BE** (RTL8922AU / WiFi 7) USB 网卡内核模块。
+为 iStoreOS Raspberry Pi 4 构建 patched 版 COMFAST CF-983BE USB 无线网卡驱动。
 
 [![Build rtw89-8922au kmod](https://github.com/gamer995/rtw89-rpi4-build/actions/workflows/build-rtw89-kmod.yml/badge.svg)](https://github.com/gamer995/rtw89-rpi4-build/actions/workflows/build-rtw89-kmod.yml)
 
-## 硬件
+## 硬件与目标系统
 
 | 项目 | 规格 |
 |------|------|
 | 网卡 | COMFAST CF-983BE |
-| 芯片 | Realtek RTL8922AU |
-| 协议 | Wi-Fi 7 (802.11be) |
-| 接口 | USB 3.0 (兼容 USB 2.0) |
+| 芯片 | Realtek RTL8922AU / USB ID `0bda:8912` |
+| 接口 | USB 3.0 |
 | 平台 | Raspberry Pi 4 |
-| 系统 | iStoreOS 24.10 (OpenWrt, kernel 6.6.119) |
+| 系统 | iStoreOS 24.10.5 |
+| 内核 | Linux `6.6.119` |
+| 架构 | `aarch64_cortex-a72` |
 
-## 背景
+## 当前验证版
 
-原版 [morrownr/rtw89](https://github.com/morrownr/rtw89) 驱动在 AP 模式下存在 bug：当客户端断开连接触发密钥删除 (`DISABLE_KEY`) 时，会调用 `rtw89_mac_flush_txq` / `rtw89_hci_flush_queues` 刷新 USB 队列，这可能导致 USB 固件挂起（"key disable flush" hang），WiFi 掉线。
-
-本仓库的 `apply_patches.py` 对 `mac80211.c` 打两个补丁：
-
-1. **`DISABLE_KEY` 守卫** — 在 AP 模式下跳过队列刷新，避免 USB 挂起
-2. **`ops_flush` 守卫** — 同上，覆盖另一个调用路径
-
-补丁通过新增的 `rtw89_is_usb_ap()` 辅助函数判断是否需要跳过。
-
-## 当前修复目标
-
-当前 r3 包能启动 AP，但仍能观察到两个稳定性问题：
-
-- `failed to wait RF DACK`：RTL8922A RFK DACK 等待窗口对 USB 太短，后续校准可能追着未完成的 DACK 跑。
-- `timed out to flush queues`：mac80211 station teardown 会触发 `ops_flush`，r3 没有覆盖这个断站 flush 路径。
-
-本仓库的 r4 构建使用 OpenWrt 24.10.5 bcm2711 SDK 编译源码，并加入：
-
-- `010-rtw89-usb-ap-skip-mac-flush-timeouts.patch`
-- `020-rtw89-8922a-extend-usb-dack-wait.patch`
-
-## 稳定基线
-
-当前可用版本是仓库内的 r3 稳定基线包：
+当前验证版基于 [morrownr/rtw89](https://github.com/morrownr/rtw89) commit:
 
 ```text
-known-good/kmod-rtw89-8922au-git_6.6.119_d2f175ea-r3_kernel-5642ee_iStoreOS-AP-fix_2026-03-17.ipk
+d2f175eafa0a4ef9cc65e7073a77e60238cae614
 ```
 
-这个包已在 iStoreOS 24.10.5 / Raspberry Pi 4 / kernel `6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1` 上验证：
+已验证的仓库提交：
 
-- `rtw89_core_git.ko` / `rtw89_usb_git.ko` / `rtw89_8922a_git.ko` / `rtw89_8922au_git.ko` 可加载
-- `.gnu.linkonce.this_module` 大小为 `0x280`
-- USB3 `5000M` 下可创建 AP，SSID `RaspberryPi`
-- 已包含 USB AP 队列 flush 修复
+```text
+185a31e fix: apply RTL8922A normal TSSI wait broadly
+```
 
-此前的裸 Linux kbuild CI 产物虽然能绕过 `struct module` 大小错误，但不是用 iStoreOS/OpenWrt 的 kbuild 和 mac80211 符号环境产出，实际加载 RTL8922AU 时会出现固件下载失败或重启。后续源码构建必须走 OpenWrt/iStoreOS SDK package 流程。
+已验证的 GitHub Actions run:
 
-## 快速使用
+```text
+https://github.com/gamer995/rtw89-rpi4-build/actions/runs/25980775965
+```
 
-### 下载预构建 .ipk
+部署到 Raspberry Pi 4 后的模块 md5:
 
-从 [GitHub Actions](https://github.com/gamer995/rtw89-rpi4-build/actions) 最新成功运行的 Artifacts 下载 `kmod-rtw89-8922au-patched-r4-istoreos-5642ee`。
+```text
+c98341a58833e72205c6743905d92321  rtw89_8922a_git.ko
+327440849561e4fa14d64f7c852f2718  rtw89_8922au_git.ko
+46cc3182fee68d0fbc1e1c144dfbf7c8  rtw89_core_git.ko
+563c3f949adc9dc4fd337037ede26b42  rtw89_usb_git.ko
+```
 
-### 安装
+设备侧验证结果：
+
+- USB 连接为 SuperSpeed `5000M`
+- AP `RaspberryPi` 可启动，5 GHz channel 36，`EHT80`
+- `failed to wait RF DACK/TSSI/IQK/DPK/RX_DCK` 未复发
+- `timed out to flush queues` 未复发
+- 主测速客户端已协商到 `1200.9 MBit/s 80MHz HE-MCS 11 HE-NSS 2`
+
+## 修复内容
+
+这个仓库不是单纯回退到旧 r3，而是在 OpenWrt/iStoreOS 的 mac80211 backports ABI 环境里构建 morrownr/rtw89，并叠加以下补丁：
+
+| 补丁 | 作用 |
+|------|------|
+| `010-rtw89-usb-ap-skip-mac-flush-timeouts.patch` | USB 模式跳过会导致 AP 卡死的 MAC flush 路径，覆盖 key 删除、station teardown、ops flush 和 core stop |
+| `020-rtw89-8922a-extend-usb-dack-wait.patch` | 将 RTL8922A DACK RFK 等待窗口扩到 60 秒，避免 USB 固件路径下 DACK 轮询过早超时 |
+| `030-rtw89-openwrt-backports-api-compat.patch` | 适配 OpenWrt 24.10.5 mac80211 backports 6.12.61 API |
+| `040-rtw89-openwrt-backports-6-11-api-compat.patch` | 适配 backports 中 6.10/6.11 之后的 mac80211 API 差异 |
+| `050-rtw89-openwrt-backports-roundup-u64-compat.patch` | 避免 backports 头文件缺失 `roundup_u64()` |
+| `060-rtw89-8922a-extend-usb-tssi-wait.patch` | 将 RTL8922A normal TSSI RFK 等待窗口扩到 60 秒，修复 AP 启动后 TX rate 被压低的问题 |
+
+## 已确认的问题根因
+
+旧 r3 能启动 AP，但仍存在两个关键问题：
+
+- RFK 等待太短：USB 固件路径比 PCIe 慢，DACK/TSSI 20 ms 级等待会过早超时，导致射频校准状态不完整。
+- flush 路径覆盖不全：早期补丁只覆盖 key disable，一些 station disconnect/flush 路径仍会触发 `timed out to flush queues`。
+
+这两个问题会表现为 Wi-Fi 信号消失、beacon 停发、测速只有几十 Mbps，或者 station dump 中 AP TX rate 被压在 20 MHz / 50 Mbps 左右。
+
+## 安装
+
+从 [GitHub Actions](https://github.com/gamer995/rtw89-rpi4-build/actions/workflows/build-rtw89-kmod.yml) 下载最新成功运行的 artifact。
+
+上传到设备：
 
 ```bash
-# 上传到设备
 scp kmod-rtw89-8922au-git_*.ipk root@<IP>:/tmp/
+```
 
-# 安装（需要 --force-depends 因为内核 ABI 校验）
+安装：
+
+```bash
 ssh root@<IP> 'opkg install --force-depends /tmp/kmod-rtw89-8922au-git_*.ipk'
 ```
 
-### 验证
+iStoreOS overlayfs 下也可以手动替换模块：
 
 ```bash
-# 检查模块是否加载
-lsmod | grep rtw89
-
-# 查看固件版本
-dmesg | grep "Firmware version"
-
-# 查看 USB 连接速度
-lsusb -t | grep rtw89
-```
-
-### iStoreOS overlayfs 特殊说明
-
-iStoreOS 使用 overlayfs，`cp -f` 到 `/lib/modules/` 可能报 "File exists"。如需手动安装模块，直接写入 overlay upper 层：
-
-```bash
-# 提取 .ipk
-cd /tmp && mkdir kmod && cd kmod
-tar -xf ../kmod-rtw89-8922au-git_*.ipk && tar -xf data.tar.gz
-
-# 直接写入 upper 层
-cp lib/modules/6.6.119/*.ko /overlay/upper/lib/modules/6.6.119/
-
-# 刷新缓存
-sync && echo 3 > /proc/sys/vm/drop_caches
+cd /tmp
+mkdir -p rtw89-kmod
+cd rtw89-kmod
+tar -xzf ../kmod-rtw89-8922au-git_*.ipk
+tar -xzf data.tar.gz
+cp lib/modules/6.6.119/rtw89_*_git.ko /overlay/upper/lib/modules/6.6.119/
+sync
 reboot
 ```
 
-## 无线配置
+建议替换模块后冷重启。热卸载/热加载可能留下 RFK/USB 状态，导致误判。
 
-在 `/etc/config/wireless` 中配置 radio（以 USB 3.0 为例）：
+## 验证
 
+检查模块：
+
+```bash
+md5sum /overlay/upper/lib/modules/6.6.119/rtw89_*_git.ko
+strings /overlay/upper/lib/modules/6.6.119/rtw89_core_git.ko | grep -E 'extend RF|skip MAC flush'
 ```
+
+检查 USB3：
+
+```bash
+lsusb -t | grep -A2 rtw89
+```
+
+检查 AP：
+
+```bash
+wifi status radio2
+iw dev phy*-ap0 info
+ubus call hostapd.phy1-ap0 get_status
+```
+
+检查错误日志：
+
+```bash
+dmesg | grep -Ei 'failed to wait RF|timed out to flush queues|rtw89|DACK|TSSI'
+```
+
+检查测速客户端链路：
+
+```bash
+iw dev phy1-ap0 station dump
+iwinfo phy1-ap0 assoclist
+```
+
+健康的高速客户端应至少看到类似：
+
+```text
+tx bitrate: 1200.9 MBit/s 80MHz HE-MCS 11 HE-NSS 2
+```
+
+如果某个客户端仍显示 `20MHz`、`65.0 MBit/s`、`72.2 MBit/s`，那是该客户端自身协商到低速链路，不能用来判断驱动是否恢复到高速。
+
+## 无线配置示例
+
+`/etc/config/wireless` 示例：
+
+```text
 config wifi-device 'radio2'
     option type 'mac80211'
-    option path 'scb/fd500000.pcie/pci0000:00/.../usb2/2-1/2-1:1.0'
+    option path 'scb/fd500000.pcie/pci0000:00/0000:00:00.0/0000:01:00.0/usb2/2-1/2-1:1.0'
     option band '5g'
     option channel '36'
     option htmode 'EHT80'
@@ -126,42 +175,29 @@ config wifi-iface 'default_radio2'
     option key '<password>'
 ```
 
-> **注意**：USB 路径 (`path`) 会因插入的 USB 口不同而变化。可通过 `readlink /sys/class/ieee80211/phy*/device` 获取当前路径，更新为 `usb1/...` 或 `usb2/...`。
+USB path 会随插口变化，可用下面命令确认：
 
-## 驱动参数
-
-| 参数 | 模块 | 默认值 | 说明 |
-|------|------|--------|------|
-| `disable_ps_mode` | rtw89_core_git | Y | 禁用省电模式（AP 建议开启） |
-| `switch_usb_mode` | rtw89_usb_git | Y | 自动切换 USB 3 模式 |
-
-## 仓库结构
-
-```
-├── apply_patches.py          # AP 模式补丁脚本
-├── rtw89_stability_monitor.sh # 稳定性监控脚本
-├── .github/workflows/         # CI 自动构建
-├── *.patch                    # 待应用的补丁文件
-├── *.ipk                      # 预构建的驱动包
-└── *.txt                      # 版本说明
+```bash
+readlink /sys/class/ieee80211/phy*/device
 ```
 
-## CI (GitHub Actions)
+## CI
 
-推送代码到 `main` 分支即自动触发构建。Workflow 会：
+Workflow 会：
 
 1. 下载 OpenWrt 24.10.5 bcm2711 SDK
-2. 拉取 morrownr/rtw89 固定 commit `d2f175e`
-3. 应用 r4 稳定性补丁
-4. 编译四个目标模块
-5. 验证 `struct module` section 大小为 `0x280`
-6. 验证模块依赖仍包含 `mac80211` / `cfg80211`
-7. 将 control 中的 kernel ABI 归一化为 iStoreOS 当前 `5642ee...`
-8. 上传 patched `.ipk` Artifact
+2. 拉取 OpenWrt `v24.10.5` 的 mac80211 package
+3. 编译 OpenWrt mac80211 backports 6.12.61
+4. 拉取 morrownr/rtw89 固定 commit `d2f175eafa0a4ef9cc65e7073a77e60238cae614`
+5. 应用本仓库补丁
+6. 在已编译的 OpenWrt backports ABI 环境内构建四个 rtw89 模块
+7. 验证 `.gnu.linkonce.this_module == 0x280`
+8. 验证模块依赖集合
+9. 打包并上传 `.ipk` artifact
 
-不要使用裸 Linux 6.6.119 kbuild 直接生成生产模块。
+不要用裸 Linux 6.6.119 kbuild 直接生成生产模块。iStoreOS/OpenWrt 的 mac80211/backports 符号环境必须匹配，否则可能出现模块能编译但加载后固件下载失败、struct module mismatch 或运行时重启。
 
 ## 许可证
 
-- rtw89 驱动：[Dual BSD/GPL](https://github.com/morrownr/rtw89/blob/main/LICENSE)
+- rtw89 驱动：Dual BSD/GPL
 - 本仓库补丁及脚本：MIT
