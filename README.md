@@ -21,7 +21,7 @@
 当前候选版基于 [morrownr/rtw89](https://github.com/morrownr/rtw89) commit:
 
 ```text
-f2e2a70eef253b4d3fc8906c99311dbc4d9f6aab
+73cd715afee2dda3f670cdae5e40fbeba7d9be36
 ```
 
 这次上游更新包含多项 RTL8922AU USB 吞吐路径修复：
@@ -65,6 +65,7 @@ c98341a58833e72205c6743905d92321  rtw89_8922a_git.ko
 |------|------|
 | `010-rtw89-usb-ap-skip-mac-flush-timeouts.patch` | USB 模式跳过会导致 AP 卡死的 MAC flush 路径，覆盖 key 删除、station teardown、ops flush 和 core stop |
 | `020-rtw89-8922a-extend-usb-dack-wait.patch` | 将 RTL8922A DACK RFK 等待窗口扩到 60 秒，避免 USB 固件路径下 DACK 轮询过早超时 |
+| `025-rtw89-openwrt-backports-ieee80211-get-sn.patch` | 避免 OpenWrt backports 已提供 `ieee80211_get_sn()` 时重复定义 |
 | `030-rtw89-openwrt-backports-api-compat.patch` | 适配 OpenWrt 24.10.5 mac80211 backports 6.12.61 API |
 | `040-rtw89-openwrt-backports-6-11-api-compat.patch` | 适配 backports 中 6.10/6.11 之后的 mac80211 API 差异 |
 | `050-rtw89-openwrt-backports-roundup-u64-compat.patch` | 避免 backports 头文件缺失 `roundup_u64()` |
