@@ -16,9 +16,9 @@
 | 内核 | Linux `6.6.119` |
 | 架构 | `aarch64_cortex-a72` |
 
-## 当前修复候选版
+## 当前验证版
 
-当前候选版基于 [morrownr/rtw89](https://github.com/morrownr/rtw89) commit:
+当前验证版基于 [morrownr/rtw89](https://github.com/morrownr/rtw89) commit:
 
 ```text
 73cd715afee2dda3f670cdae5e40fbeba7d9be36
@@ -34,28 +34,29 @@ d3cb9b2 wifi: rtw89: phy: increase RF calibration timeouts for USB transport
 18436ff wifi: rtw89: usb: fix TX flow control by tracking in-flight URBs
 ```
 
-上一版已部署验证的仓库提交：
+已验证的 GitHub Actions run:
 
 ```text
-185a31e fix: apply RTL8922A normal TSSI wait broadly
+https://github.com/gamer995/rtw89-rpi4-build/actions/runs/26072593567
 ```
 
 部署到 Raspberry Pi 4 后的模块 md5:
 
 ```text
-c98341a58833e72205c6743905d92321  rtw89_8922a_git.ko
-327440849561e4fa14d64f7c852f2718  rtw89_8922au_git.ko
-46cc3182fee68d0fbc1e1c144dfbf7c8  rtw89_core_git.ko
-563c3f949adc9dc4fd337037ede26b42  rtw89_usb_git.ko
+8bc563360d3f92d22604d16a517e507f  rtw89_8922a_git.ko
+5d775a1ff1ef81abaa8b168746e8f8d4  rtw89_8922au_git.ko
+a209bcbc8de8fa607ca29e4bb9da8d21  rtw89_core_git.ko
+e125f6996a341a8db20f4d8d29b5c558  rtw89_usb_git.ko
 ```
 
-上一版设备侧验证结果：
+设备侧验证结果：
 
 - USB 连接为 SuperSpeed `5000M`
 - AP `RaspberryPi` 可启动，5 GHz channel 36，`EHT80`
 - `failed to wait RF DACK/TSSI/IQK/DPK/RX_DCK` 未复发
 - `timed out to flush queues` 未复发
-- 主测速客户端已协商到 `1200.9 MBit/s 80MHz HE-MCS 11 HE-NSS 2`
+- 已部署到 `192.168.7.127` 并冷重启验证，启动后 AP `AP-ENABLED`
+- 当前验证时没有客户端连接，测速客户端链路速率需连接后用 `iw dev phy1-ap0 station dump` 复核
 
 ## 修复内容
 
