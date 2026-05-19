@@ -16,24 +16,28 @@
 | 内核 | Linux `6.6.119` |
 | 架构 | `aarch64_cortex-a72` |
 
-## 当前验证版
+## 当前修复候选版
 
-当前验证版基于 [morrownr/rtw89](https://github.com/morrownr/rtw89) commit:
+当前候选版基于 [morrownr/rtw89](https://github.com/morrownr/rtw89) commit:
 
 ```text
-d2f175eafa0a4ef9cc65e7073a77e60238cae614
+f2e2a70eef253b4d3fc8906c99311dbc4d9f6aab
 ```
 
-已验证的仓库提交：
+这次上游更新包含多项 RTL8922AU USB 吞吐路径修复：
+
+```text
+5148d7f wifi: rtw89: usb: Enable RX aggregation for RTL8922AU
+464ae08 wifi: rtw89: Let hfc_param_ini have separate settings for USB 2/3
+f93ba28 wifi: rtw89: Add missing TX queue mappings for RTL8922AU
+d3cb9b2 wifi: rtw89: phy: increase RF calibration timeouts for USB transport
+18436ff wifi: rtw89: usb: fix TX flow control by tracking in-flight URBs
+```
+
+上一版已部署验证的仓库提交：
 
 ```text
 185a31e fix: apply RTL8922A normal TSSI wait broadly
-```
-
-已验证的 GitHub Actions run:
-
-```text
-https://github.com/gamer995/rtw89-rpi4-build/actions/runs/25980775965
 ```
 
 部署到 Raspberry Pi 4 后的模块 md5:
@@ -45,7 +49,7 @@ c98341a58833e72205c6743905d92321  rtw89_8922a_git.ko
 563c3f949adc9dc4fd337037ede26b42  rtw89_usb_git.ko
 ```
 
-设备侧验证结果：
+上一版设备侧验证结果：
 
 - USB 连接为 SuperSpeed `5000M`
 - AP `RaspberryPi` 可启动，5 GHz channel 36，`EHT80`
