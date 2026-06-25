@@ -14,11 +14,11 @@ jobs:
     runs-on: ubuntu-22.04
 
     env:
-      SDK_URL: https://downloads.openwrt.org/releases/24.10.5/targets/bcm27xx/bcm2711/openwrt-sdk-24.10.5-bcm27xx-bcm2711_gcc-13.3.0_musl.Linux-x86_64.tar.zst
-      OPENWRT_REF: v24.10.5
+      SDK_URL: https://downloads.openwrt.org/releases/24.10.7/targets/bcm27xx/bcm2711/openwrt-sdk-24.10.7-bcm27xx-bcm2711_gcc-13.3.0_musl.Linux-x86_64.tar.zst
+      OPENWRT_REF: v24.10.7
       RTW89_REF: 73cd715afee2dda3f670cdae5e40fbeba7d9be36
-      KERNEL_ABI: 6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1
-      OUT_VERSION: 6.6.119.2026.05.19~73cd715-r10
+      KERNEL_ABI: 6.6.141~f99b5a30a0b92b52358d2c9b6a760213-r1
+      OUT_VERSION: 6.6.141.2026.06.25~73cd715-r10
       PKG_NAME: kmod-rtw89-8922au-git
 
     steps:
@@ -33,7 +33,7 @@ jobs:
             git libncurses5-dev libssl-dev python3-distutils rsync unzip \
             zstd file wget ca-certificates binutils-aarch64-linux-gnu
 
-      - name: Download OpenWrt 24.10.5 bcm2711 SDK and mac80211 package
+      - name: Download OpenWrt 24.10.7 bcm2711 SDK and mac80211 package
         run: |
           set -eu
           mkdir sdk openwrt-src
@@ -89,7 +89,7 @@ jobs:
 
           cd sdk
           bp_dir=$(find build_dir -path '*/mac80211-regular/backports-6.12.61' -type d | head -1)
-          linux_dir=$(find build_dir -path '*/linux-bcm27xx_bcm2711/linux-6.6.119' -type d | head -1)
+          linux_dir=$(find build_dir -path '*/linux-bcm27xx_bcm2711/linux-6.6.141' -type d | head -1)
           symvers=$(find build_dir -path '*/symvers/mac80211.symvers' -type f | head -1)
           toolchain_bin=$(find staging_dir -path '*/bin/aarch64-openwrt-linux-musl-gcc' -type f | head -1)
           test -n "$bp_dir"
@@ -118,11 +118,11 @@ jobs:
             cmd_syscalls= \
             KBUILD_EXTRA_SYMBOLS="$PWD/$symvers" \
             CC="$toolchain_bin" \
-            KERNELRELEASE=6.6.119 \
+            KERNELRELEASE=6.6.141 \
             EXTRA_CFLAGS="-I$PWD/$bp_dir/include -ffile-prefix-map=$PWD/$bp_dir=backports-6.12.61 " \
             KLIB_BUILD="$PWD/$linux_dir" \
             MODPROBE=true \
-            KLIB=/lib/modules/6.6.119 \
+            KLIB=/lib/modules/6.6.141 \
             KERNEL_SUBLEVEL=6 \
             KBUILD_LDFLAGS_MODULE_PREREQ= \
             modules
@@ -132,7 +132,7 @@ jobs:
         run: |
           set -eu
           rm -rf out verify/data verify/control
-          mkdir -p out verify/data/lib/modules/6.6.119 verify/control
+          mkdir -p out verify/data/lib/modules/6.6.141 verify/control
 
           bp_dir=$(find sdk/build_dir -path '*/mac80211-regular/backports-6.12.61' -type d | head -1)
           rtw_dir="$bp_dir/drivers/net/wireless/realtek/rtw89"
@@ -146,14 +146,14 @@ jobs:
           do
             ko_path="$rtw_dir/$ko"
             test -s "$ko_path"
-            cp "$ko_path" "verify/data/lib/modules/6.6.119/$ko"
+            cp "$ko_path" "verify/data/lib/modules/6.6.141/$ko"
             size_hex=$(aarch64-linux-gnu-objdump -h "$ko_path" \
               | awk '$2 == ".gnu.linkonce.this_module" { print $3 }')
             test "$size_hex" = "00000280"
             echo "$ko: .gnu.linkonce.this_module=0x${size_hex}"
           done
 
-          for ko in verify/data/lib/modules/6.6.119/*.ko; do
+          for ko in verify/data/lib/modules/6.6.141/*.ko; do
             echo "$(basename "$ko") modinfo:"
             strings "$ko" | grep -E '^(name=|depends=|vermagic=)' | sort || true
           done
@@ -176,10 +176,10 @@ jobs:
             fi
           }
 
-          assert_dep_set verify/data/lib/modules/6.6.119/rtw89_core_git.ko 'mac80211,cfg80211,compat'
-          assert_dep_set verify/data/lib/modules/6.6.119/rtw89_usb_git.ko 'rtw89_core_git,mac80211'
-          assert_dep_set verify/data/lib/modules/6.6.119/rtw89_8922a_git.ko 'rtw89_core_git,cfg80211'
-          assert_dep_set verify/data/lib/modules/6.6.119/rtw89_8922au_git.ko 'rtw89_8922a_git,rtw89_usb_git,compat'
+          assert_dep_set verify/data/lib/modules/6.6.141/rtw89_core_git.ko 'mac80211,cfg80211,compat'
+          assert_dep_set verify/data/lib/modules/6.6.141/rtw89_usb_git.ko 'rtw89_core_git,mac80211'
+          assert_dep_set verify/data/lib/modules/6.6.141/rtw89_8922a_git.ko 'rtw89_core_git,cfg80211'
+          assert_dep_set verify/data/lib/modules/6.6.141/rtw89_8922au_git.ko 'rtw89_8922a_git,rtw89_usb_git,compat'
 
           {
             echo "Package: ${PKG_NAME}"
@@ -205,7 +205,7 @@ jobs:
       - name: Upload patched .ipk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kmod-rtw89-8922au-patched-r10-backports-istoreos-5642ee
+          name: kmod-rtw89-8922au-patched-r10-backports-istoreos-f99b5a
           path: out/*.ipk
           retention-days: 14
 
@@ -214,9 +214,9 @@ jobs:
           {
             echo '## Patched r10 package'
             echo ''
-            echo '- Target: iStoreOS 24.10.5 Raspberry Pi 4, kernel 6.6.119'
+            echo '- Target: iStoreOS 24.10.7 Raspberry Pi 4, kernel 6.6.141'
             echo '- Build path: OpenWrt mac80211 backports-6.12.61 package, with morrownr/rtw89 substituted into the backports rtw89 directory'
-            echo '- Kernel ABI normalized to: 6.6.119~5642ee3ae5a6da3ce336f51cf968083c-r1'
+            echo '- Kernel ABI normalized to: 6.6.141~f99b5a30a0b92b52358d2c9b6a760213-r1'
             echo '- Source: morrownr/rtw89 73cd715afee2dda3f670cdae5e40fbeba7d9be36'
             echo '- Patches: USB MAC flush skip, RTL8922A DACK wait extension, RTL8922A normal TSSI wait extension, OpenWrt backports API compatibility'
             echo "- Output: ${OUT_IPK}"
