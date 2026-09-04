@@ -205,8 +205,9 @@ jobs:
           printf '2.0\n' > debian-binary
           out_ipk="out/${PKG_NAME}_${OUT_VERSION}_aarch64_cortex-a72.ipk"
           tar -czf "$out_ipk" ./debian-binary ./control.tar.gz ./data.tar.gz
+          safe_ver="$(printf '%s' "${OUT_VERSION}" | tr '~' '-')"
           echo "OUT_IPK=$out_ipk" >> "$GITHUB_ENV"
-          echo "OUT_TAG=v${OUT_VERSION}" >> "$GITHUB_ENV"
+          echo "OUT_TAG=v${safe_ver}" >> "$GITHUB_ENV"
           ls -lh "$out_ipk"
 
       - name: Upload patched .ipk artifact
