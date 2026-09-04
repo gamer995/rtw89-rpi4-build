@@ -1,0 +1,182 @@
+From: rtw89-usb-ap-fix <local@patch>
+Date: Fri, 15 May 2026 19:28:00 +0800
+Subject: [PATCH] rtw89: use 6.10+ and 6.11+ APIs in OpenWrt backports
+
+OpenWrt's 6.12 mac80211 backports expose newer mac80211/cfg80211 APIs
+even when the target kernel reports 6.6.119. Treat CPTCFG_VERSION builds
+as the backports API surface for these version gates too.
+---
+diff --git a/core.c b/core.c
+--- a/core.c
++++ b/core.c
+@@ -3835,7 +3835,7 @@ EXPORT_SYMBOL(rtw89_core_napi_stop);
+ 
+ int rtw89_core_napi_init(struct rtw89_dev *rtwdev)
+ {
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0) || defined(CPTCFG_VERSION)
+ 	rtwdev->netdev = alloc_netdev_dummy(0);
+ #else
+ 	rtwdev->netdev = alloc_netdev(0, "dummy#", NET_NAME_UNKNOWN, ether_setup);
+diff --git a/core.h b/core.h
+--- a/core.h
++++ b/core.h
+@@ -55,7 +55,7 @@ static inline void ieee80211_purge_tx_queue(struct ieee80211_hw *hw,
+ }
+ #endif
+ 
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0) && !defined(CPTCFG_VERSION)
+ /**
+  * DIV_U64_ROUND_UP - unsigned 64bit divide with 32bit divisor rounded up
+  * @ll: unsigned 64bit dividend
+@@ -891,7 +891,7 @@ enum rtw89_reg_6ghz_power {
+ 	RTW89_REG_6GHZ_POWER_DFLT = RTW89_REG_6GHZ_POWER_VLP,
+ };
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ #define RTW89_MIN_VALID_POWER_CONSTRAINT (-10) /* unit: dBm */
+ 
+ /* calculate based on ieee80211 Transmit Power Envelope */
+@@ -3766,7 +3766,7 @@ struct rtw89_vif_link {
+ 	bool chanctx_assigned; /* only valid when running with chanctx_ops */
+ 	enum rtw89_chanctx_idx chanctx_idx;
+ 	enum rtw89_reg_6ghz_power reg_6ghz_power;
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ 	struct rtw89_reg_6ghz_tpe reg_6ghz_tpe;
+ #endif
+ 
+@@ -5719,7 +5719,7 @@ struct rtw89_regulatory_info {
+ 	bool programmed;
+ 
+ 	enum rtw89_reg_6ghz_power reg_6ghz_power;
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ 	struct rtw89_reg_6ghz_tpe reg_6ghz_tpe;
+ #endif
+ 	bool txpwr_uk_follow_etsi;
+diff --git a/debug.c b/debug.c
+--- a/debug.c
++++ b/debug.c
+@@ -936,7 +936,7 @@ static const struct dbgfs_txpwr_table *dbgfs_txpwr_tables[RTW89_CHIP_GEN_NUM] =
+ 	[RTW89_CHIP_BE] = &dbgfs_txpwr_table_be,
+ };
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ static
+ int rtw89_debug_priv_txpwr_table_get_regd(struct rtw89_dev *rtwdev,
+ 					  char *buf, size_t bufsz,
+@@ -983,7 +983,7 @@ ssize_t rtw89_debug_priv_txpwr_table_get(struct rtw89_dev *rtwdev,
+ 	chan = rtw89_chan_get(rtwdev, RTW89_CHANCTX_0);
+ 	sar_parm.center_freq = chan->freq;
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ 	p += rtw89_debug_priv_txpwr_table_get_regd(rtwdev, p, end - p, chan);
+ #else
+ 	p += scnprintf(p, end - p, "[Regulatory] ");
+diff --git a/mac80211.c b/mac80211.c
+--- a/mac80211.c
++++ b/mac80211.c
+@@ -63,7 +63,7 @@ static int rtw89_ops_start(struct ieee80211_hw *hw)
+ 	return rtw89_core_start(rtwdev);
+ }
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ static void rtw89_ops_stop(struct ieee80211_hw *hw, bool suspend)
+ #else
+ static void rtw89_ops_stop(struct ieee80211_hw *hw)
+@@ -786,7 +786,7 @@ static void rtw89_ops_link_info_changed(struct ieee80211_hw *hw,
+ 	if (changed & BSS_CHANGED_CQM)
+ 		rtw89_fw_h2c_set_bcn_fltr_cfg(rtwdev, rtwvif_link, true);
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ 	if (changed & BSS_CHANGED_TPE)
+ 		rtw89_reg_6ghz_recalc(rtwdev, rtwvif_link, true);
+ #endif
+diff --git a/phy.c b/phy.c
+--- a/phy.c
++++ b/phy.c
+@@ -2465,7 +2465,7 @@ void rtw89_phy_load_txpwr_byrate(struct rtw89_dev *rtwdev,
+ }
+ EXPORT_SYMBOL(rtw89_phy_load_txpwr_byrate);
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ static s8 rtw89_phy_txpwr_dbm_without_tolerance(s8 dbm)
+ {
+ 	const u8 tssi_deviation_point = 0;
+@@ -2587,7 +2587,7 @@ s8 rtw89_phy_read_txpwr_limit(struct rtw89_dev *rtwdev, u8 band,
+ 		.center_freq = freq,
+ 		.ntx = ntx,
+ 	};
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ 	s8 cstr;
+ #endif
+ 
+@@ -2640,7 +2640,7 @@ s8 rtw89_phy_read_txpwr_limit(struct rtw89_dev *rtwdev, u8 band,
+ 
+ 	lmt = rtw89_phy_txpwr_rf_to_mac(rtwdev, min(lmt + offset, da_lmt));
+ 	sar = rtw89_query_sar(rtwdev, &sar_parm);
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ 	cstr = rtw89_phy_get_tpe_constraint(rtwdev, band);
+ 
+ 	return min3(lmt, sar, cstr);
+@@ -2878,7 +2878,7 @@ s8 rtw89_phy_read_txpwr_limit_ru(struct rtw89_dev *rtwdev, u8 band,
+ 		.center_freq = freq,
+ 		.ntx = ntx,
+ 	};
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ 	s8 cstr;
+ #endif
+ 
+@@ -2926,7 +2926,7 @@ s8 rtw89_phy_read_txpwr_limit_ru(struct rtw89_dev *rtwdev, u8 band,
+ 
+ 	lmt_ru = rtw89_phy_txpwr_rf_to_mac(rtwdev, min(lmt_ru + offset, da_lmt_ru));
+ 	sar = rtw89_query_sar(rtwdev, &sar_parm);
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ 	cstr = rtw89_phy_get_tpe_constraint(rtwdev, band);
+ 
+ 	return min3(lmt_ru, sar, cstr);
+diff --git a/phy.h b/phy.h
+--- a/phy.h
++++ b/phy.h
+@@ -974,7 +974,7 @@ static inline s8 rtw89_phy_txpwr_rf_to_mac(struct rtw89_dev *rtwdev, s8 txpwr_rf
+ 	return txpwr_rf >> (chip->txpwr_factor_rf - chip->txpwr_factor_mac);
+ }
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ static inline s8 rtw89_phy_txpwr_dbm_to_mac(struct rtw89_dev *rtwdev, s8 dbm)
+ {
+ 	const struct rtw89_chip_info *chip = rtwdev->chip;
+diff --git a/regd.c b/regd.c
+--- a/regd.c
++++ b/regd.c
+@@ -899,7 +899,7 @@ policy:
+ 	wiphy_unlock(wiphy);
+ }
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ /* Maximum Transmit Power field (@raw) can be EIRP or PSD.
+  * Both units are 0.5 dB-based. Return a constraint in dB.
+  */
+@@ -1177,7 +1177,7 @@ int rtw89_reg_6ghz_recalc(struct rtw89_dev *rtwdev, struct rtw89_vif_link *rtwvi
+ 	if (ret)
+ 		return ret;
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0) || defined(CPTCFG_VERSION)
+ 	ret = rtw89_reg_6ghz_tpe_recalc(rtwdev, rtwvif_link, active, &changed);
+ 	if (ret)
+ 		return ret;

@@ -1,0 +1,189 @@
+From: rtw89-usb-ap-fix <local@patch>
+Date: Fri, 15 May 2026 19:10:00 +0800
+Subject: [PATCH] rtw89: use new mac80211 APIs when built in OpenWrt backports
+
+OpenWrt 24.10 builds mac80211 from a 6.12 backports tree while the target
+kernel is still 6.6.119. morrownr/rtw89 keys several mac80211 API choices
+off LINUX_VERSION_CODE, so an out-of-tree backports build can choose the
+old 6.6 branches against 6.12 headers.
+
+When CPTCFG_VERSION is defined by the backports build, use the 6.9+ API
+branches that match the generated mac80211/cfg80211 headers.
+---
+diff --git a/chan.c b/chan.c
+--- a/chan.c
++++ b/chan.c
+@@ -152,7 +152,7 @@ void rtw89_chan_create(struct rtw89_chan *chan, u8 center_chan, u8 primary_chan,
+ 						    bandwidth);
+ }
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
+ static void _rtw89_chan_update_punctured(struct rtw89_dev *rtwdev,
+ 					 struct rtw89_vif_link *rtwvif_link,
+ 					 const struct cfg80211_chan_def *chandef)
+@@ -3358,7 +3358,7 @@ void rtw89_chanctx_ops_change(struct rtw89_dev *rtwdev,
+ 		rtw89_set_channel(rtwdev);
+ 	}
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
+ 	if (changed & IEEE80211_CHANCTX_CHANGE_PUNCTURING)
+ 		rtw89_chan_update_punctured(rtwdev, idx, &ctx->def);
+ #endif
+@@ -3505,7 +3505,7 @@ assign:
+ 		return ret;
+ 	}
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
+ 	_rtw89_chan_update_punctured(rtwdev, rtwvif_link, &new_ctx->def);
+ #endif
+ 
+diff --git a/core.c b/core.c
+--- a/core.c
++++ b/core.c
+@@ -4606,7 +4606,7 @@ select:
+ 		if (unlikely(!link_conf))
+ 			continue;
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
+ 		channel = link_conf->chanreq.oper.chan;
+ #else
+ 		channel = link_conf->chandef.chan;
+@@ -5652,7 +5652,7 @@ void rtw89_core_csa_beacon_work(struct wiphy *wiphy, struct wiphy_work *work)
+ 
+ 	rcu_read_unlock();
+ 
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 9, 0)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 9, 0) && !defined(CPTCFG_VERSION)
+ 	if (!ieee80211_beacon_cntdwn_is_complete(vif)) {
+ #else
+ 	if (!ieee80211_beacon_cntdwn_is_complete(vif, rtwvif_link->link_id)) {
+@@ -5662,7 +5662,7 @@ void rtw89_core_csa_beacon_work(struct wiphy *wiphy, struct wiphy_work *work)
+ 		wiphy_delayed_work_queue(wiphy, &rtwvif_link->csa_beacon_work,
+ 					 usecs_to_jiffies(delay));
+ 	} else {
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 9, 0)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 9, 0) && !defined(CPTCFG_VERSION)
+ 		ieee80211_csa_finish(vif);
+ #else
+ 		ieee80211_csa_finish(vif, rtwvif_link->link_id);
+@@ -6424,7 +6424,7 @@ int rtw89_core_mlsr_switch(struct rtw89_dev *rtwdev, struct rtw89_vif *rtwvif,
+ 		goto wake_queue;
+ 	}
+ 
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 7, 0)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 7, 0) && !defined(CPTCFG_VERSION)
+ 	if (likely(cur))
+ 		rtw89_fw_h2c_mlo_link_cfg(rtwdev, cur, false);
+ 
+@@ -6825,7 +6825,7 @@ struct rtw89_dev *rtw89_alloc_ieee80211_hw(struct device *device,
+ 		     !RTW89_CHK_FW_FEATURE(BEACON_FILTER, &early_fw);
+ 
+ 	if (no_chanctx) {
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
+ 		ops->add_chanctx = ieee80211_emulate_add_chanctx;
+ 		ops->remove_chanctx = ieee80211_emulate_remove_chanctx;
+ 		ops->change_chanctx = ieee80211_emulate_change_chanctx;
+diff --git a/core.h b/core.h
+--- a/core.h
++++ b/core.h
+@@ -85,7 +85,7 @@ static inline u64 roundup_u64(u64 x, u32 y)
+ }
+ #endif
+ 
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 7, 0)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 7, 0) && !defined(CPTCFG_VERSION)
+  /* UL-bandwidth within common_info of trigger frame */
+  #define IEEE80211_TRIGGER_ULBW_MASK		0xc0000
+  #define IEEE80211_TRIGGER_ULBW_20MHZ		0x0
+diff --git a/fw.c b/fw.c
+--- a/fw.c
++++ b/fw.c
+@@ -4038,7 +4038,7 @@ int rtw89_fw_h2c_assoc_cmac_tbl_g7(struct rtw89_dev *rtwdev,
+ 	}
+ 
+ 	if (bss_conf->eht_support) {
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
+ 		u16 punct = bss_conf->chanreq.oper.punctured;
+ 
+ 		h2c->w4 |= le32_encode_bits(~punct,
+@@ -4165,7 +4165,7 @@ int rtw89_fw_h2c_assoc_cmac_tbl_be(struct rtw89_dev *rtwdev,
+ 	h2c->m4 = cpu_to_le32(BE_CCTL_INFO_W4_MULTI_PORT_ID);
+ 
+ 	if (bss_conf->eht_support) {
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
+ 		u16 punct = bss_conf->chanreq.oper.punctured;
+ 
+ 		h2c->w4 |= le32_encode_bits(~punct,
+@@ -4512,7 +4512,7 @@ fail:
+ }
+ EXPORT_SYMBOL(rtw89_fw_h2c_txtime_cmac_tbl_be);
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
+ int rtw89_fw_h2c_punctured_cmac_tbl_g7(struct rtw89_dev *rtwdev,
+ 				       struct rtw89_vif_link *rtwvif_link,
+ 				       u16 punctured)
+diff --git a/fw.h b/fw.h
+--- a/fw.h
++++ b/fw.h
+@@ -5219,7 +5219,7 @@ int rtw89_fw_h2c_txtime_cmac_tbl_g7(struct rtw89_dev *rtwdev,
+ 				    struct rtw89_sta_link *rtwsta_link);
+ int rtw89_fw_h2c_txtime_cmac_tbl_be(struct rtw89_dev *rtwdev,
+ 				    struct rtw89_sta_link *rtwsta_link);
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
+ int rtw89_fw_h2c_punctured_cmac_tbl_g7(struct rtw89_dev *rtwdev,
+ 				       struct rtw89_vif_link *rtwvif_link,
+ 				       u16 punctured);
+@@ -5551,7 +5551,7 @@ int rtw89_chip_h2c_txtime_cmac_tbl(struct rtw89_dev *rtwdev,
+ 	return chip->ops->h2c_txtime_cmac_tbl(rtwdev, rtwsta_link);
+ }
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
+ static inline
+ int rtw89_chip_h2c_punctured_cmac_tbl(struct rtw89_dev *rtwdev,
+ 				      struct rtw89_vif_link *rtwvif_link,
+diff --git a/mac.c b/mac.c
+--- a/mac.c
++++ b/mac.c
+@@ -5116,7 +5116,7 @@ void rtw89_mac_set_he_obss_narrow_bw_ru(struct rtw89_dev *rtwdev,
+ 		return;
+ 	}
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
+ 	oper = bss_conf->chanreq.oper;
+ #else
+ 	oper = bss_conf->chandef;
+diff --git a/rtw8922a.c b/rtw8922a.c
+--- a/rtw8922a.c
++++ b/rtw8922a.c
+@@ -3087,7 +3087,7 @@ static const struct rtw89_chip_ops rtw8922a_chip_ops = {
+ 	.h2c_assoc_cmac_tbl	= rtw89_fw_h2c_assoc_cmac_tbl_g7,
+ 	.h2c_ampdu_cmac_tbl	= rtw89_fw_h2c_ampdu_cmac_tbl_g7,
+ 	.h2c_txtime_cmac_tbl	= rtw89_fw_h2c_txtime_cmac_tbl_g7,
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
+ 	.h2c_punctured_cmac_tbl	= rtw89_fw_h2c_punctured_cmac_tbl_g7,
+ #else
+ 	.h2c_punctured_cmac_tbl	= NULL,
+diff --git a/wow.c b/wow.c
+--- a/wow.c
++++ b/wow.c
+@@ -674,7 +674,7 @@ static struct ieee80211_key_conf *rtw89_wow_gtk_rekey(struct rtw89_dev *rtwdev,
+ 	else
+ 		key = ieee80211_gtk_rekey_add(wow_vif, keyidx, gtk,
+ 					      cipher_info->len, -1);
+-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0) || defined(CPTCFG_VERSION)
+ 	if (ieee80211_vif_is_mld(wow_vif))
+ 		key = ieee80211_gtk_rekey_add(wow_vif, rekey_conf, rtwvif_link->link_id);
+ 	else

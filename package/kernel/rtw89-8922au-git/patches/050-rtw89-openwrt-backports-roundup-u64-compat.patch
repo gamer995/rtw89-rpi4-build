@@ -1,0 +1,30 @@
+From: rtw89-usb-ap-fix <local@patch>
+Date: Fri, 15 May 2026 19:55:00 +0800
+Subject: [PATCH] rtw89: avoid roundup_u64 in OpenWrt backports builds
+
+OpenWrt's mac80211 backports build can expose newer APIs while not
+providing the newer roundup_u64 helper to this driver build. Keep the
+calculation local and use div_u64 directly so the code builds against
+the iStoreOS/OpenWrt 24.10 backports headers.
+---
+diff --git a/chan.c b/chan.c
+--- a/chan.c
++++ b/chan.c
+@@ -934,7 +934,7 @@ fill:
+ 
+ 	tsf_lmt = (tsf & GENMASK_ULL(63, 32)) | start_time;
+ 	if (tsf_lmt < tsf)
+-		tsf_lmt += roundup_u64(tsf - tsf_lmt, interval);
++		tsf_lmt += div_u64(tsf - tsf_lmt + interval - 1, interval) * interval;
+ 
+ 	max_toa_us = rtw89_mcc_get_tbtt_ofst(rtwdev, mcc_role, tsf_lmt);
+ 	max_dur_us = interval - duration;
+@@ -1785,7 +1785,7 @@ static int rtw89_mcc_fill_start_tsf(struct rtw89_dev *rtwdev,
+ 	cur_tbtt_ofst = rtw89_mcc_get_tbtt_ofst(rtwdev, ref, tsf);
+ 	start_tsf = tsf - cur_tbtt_ofst + bcn_intvl_ref_us - tob_ref_us;
+ 	if (start_tsf < min_time)
+-		start_tsf += roundup_u64(min_time - start_tsf, bcn_intvl_ref_us);
++		start_tsf += div_u64(min_time - start_tsf + bcn_intvl_ref_us - 1, bcn_intvl_ref_us) * bcn_intvl_ref_us;
+ 
+ 	config->start_tsf = start_tsf;
+ 	config->start_tsf_in_aux_domain = tsf_aux + start_tsf - tsf;

@@ -1,0 +1,24 @@
+From: rtw89-usb-ap-fix <local@patch>
+Date: Tue, 19 May 2026 10:31:00 +0800
+Subject: [PATCH] rtw89: do not redefine ieee80211_get_sn in OpenWrt backports
+
+OpenWrt 24.10 builds mac80211 from a 6.12 backports tree while the
+target kernel is 6.6.119. Upstream rtw89 adds an ieee80211_get_sn()
+compat helper for kernels older than 6.9, but the backports mac80211
+headers already provide it.
+
+Guard the helper out when CPTCFG_VERSION is defined so the same source
+can build against OpenWrt backports without a duplicate static inline.
+---
+diff --git a/core.h b/core.h
+--- a/core.h
++++ b/core.h
+@@ -31,7 +31,7 @@ struct rtw89_regd_data;
+ 
+ extern const struct ieee80211_ops rtw89_ops;
+ 
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 9, 0)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 9, 0) && !defined(CPTCFG_VERSION)
+ static inline u16 ieee80211_get_sn(struct ieee80211_hdr *hdr)
+ {
+ 	return le16_get_bits(hdr->seq_ctrl, IEEE80211_SCTL_SEQ);

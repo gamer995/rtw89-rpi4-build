@@ -1,0 +1,38 @@
+From: rtw89-usb-ap-fix <local@patch>
+Date: Fri, 15 May 2026 11:45:00 +0800
+Subject: [PATCH] rtw89: extend RTL8922A DACK RFK wait for USB
+
+RTL8922AU firmware RFK reports can arrive far later over USB than the
+PCIe-oriented 58 ms DACK wait used by RTL8922A.  On iStoreOS/RPi4 this
+prints "failed to wait RF DACK" during AP bring-up and leaves the
+following RFK sequence racing a still-running DACK calibration.
+
+Use an RTL8922A-specific DACK wait window. Other RFK waits keep their
+upstream values so failed C2H paths do not make every channel change
+block for a long time. Log the chosen window once per DACK request so
+field logs can prove the patched path was actually used.
+---
+ phy.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/phy.c b/phy.c
+--- a/phy.c
++++ b/phy.c
+@@ -4190,10 +4190,17 @@ int rtw89_phy_rfk_dack_and_wait(struct rtw89_dev *rtwdev,
+ {
+ 	int ret;
+ 
++	if (rtwdev->chip->chip_id == RTL8922A) {
++		ms = max(ms * 1000, 60000U);
++		rtw89_info(rtwdev,
++			   "extend RF DACK wait to %u ms for RTL8922A hci=%d\n",
++			   ms, rtwdev->hci.type);
++	}
++
+ 	rtw89_phy_rfk_report_prep(rtwdev);
+ 
+ 	ret = rtw89_fw_h2c_rf_dack(rtwdev, phy_idx, chan);
+ 	if (ret)
+ 		return ret;
+ 
+ 	return rtw89_phy_rfk_report_wait(rtwdev, "DACK", ms);

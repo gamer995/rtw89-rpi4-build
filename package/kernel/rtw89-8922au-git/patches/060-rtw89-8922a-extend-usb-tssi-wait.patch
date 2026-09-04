@@ -1,0 +1,31 @@
+From: rtw89-usb-ap-fix <local@patch>
+Date: Sat, 16 May 2026 08:15:00 +0800
+Subject: [PATCH] rtw89: extend RTL8922A TSSI RFK wait for USB AP
+
+RTL8922AU can report "failed to wait RF TSSI" during AP bring-up on
+iStoreOS/RPi4. The normal RTL8922A channel RFK path only waits 20 ms for
+TSSI, which is too short for this USB device/firmware path and can leave
+the AP with poor TX rate selection.
+
+Extend only the normal TSSI wait for RTL8922A. Keep scan TSSI at its
+upstream timeout so scan/channel changes do not block for a long time
+when the firmware path is genuinely not responding.
+---
+diff --git a/phy.c b/phy.c
+--- a/phy.c
++++ b/phy.c
+@@ -4122,6 +4122,14 @@ int rtw89_phy_rfk_tssi_and_wait(struct rtw89_dev *rtwdev,
+ {
+ 	int ret;
+ 
++	if (rtwdev->chip->chip_id == RTL8922A &&
++	    tssi_mode == RTW89_TSSI_NORMAL) {
++		ms = max(ms * 1000, 60000U);
++		rtw89_info(rtwdev,
++			   "extend RF TSSI wait to %u ms for RTL8922A mode=%d hci=%d\n",
++			   ms, tssi_mode, rtwdev->hci.type);
++	}
++
+ 	rtw89_phy_rfk_report_prep(rtwdev);
+ 
+ 	ret = rtw89_fw_h2c_rf_tssi(rtwdev, phy_idx, chan, tssi_mode);
