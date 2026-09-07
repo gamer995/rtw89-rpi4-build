@@ -57,7 +57,7 @@ CI 会：
 | `040-rtw89-openwrt-backports-6-11-api-compat.patch` | 适配 6.10/6.11 之后的 mac80211 API 差异 |
 | `050-rtw89-openwrt-backports-roundup-u64-compat.patch` | 补 `roundup_u64()` |
 | `060-rtw89-8922a-extend-usb-tssi-wait.patch` | TSSI RFK 等待窗口扩到 60s |
-| `070-rtw89-usb-skip-hs-probe-8922a.patch` | RTL8922A 在非 SuperSpeed 速度下跳过 probe(8922AU 芯片 PAD_CTRL2 默认值会让上游 USB3 切换判断失效,HS 下 probe 必然 -71 失败并引发开机 ~90s 错误风暴) |
+| `070-rtw89-usb-8922a-reset-for-superspeed.patch` | RTL8922A 在非 SuperSpeed 总线上立即 `usb_reset_device()` 触发快速重枚举,跳过注定失败的 HS probe(8922AU 芯片 PAD_CTRL2 默认值会让上游 USB3 切换判断失效,HS 下 probe 必然 -71 失败并引发开机 ~90s 错误风暴);模块级计数上限 5 次,USB2 口下自动回退原生行为 |
 
 ## 注意
 

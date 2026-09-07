@@ -1,0 +1,67 @@
+From: rtw89-usb-ap-fix <local@patch>
+Date: Sun, 7 Sep 2026 16:40:00 +0800
+Subject: [PATCH] rtw89: reset RTL8922AU out of high-speed enumeration
+
+RTL8922AU on Raspberry Pi 4 (VL805 xHCI + VIA hub) enumerates at
+high-speed first through the hub's USB2 path. The chip's PAD_CTRL2
+MATCH_CNT field already equals USB_SWITCH_DELAY out of power-on, so
+rtw89_usb_switch_mode_be() believes a USB3 switch was attempted and
+returns 0 without doing anything, and - because every vendor request
+fails with -71 on this platform - the driver cannot request the U3
+switch itself either.
+
+A full probe is then run over USB2 and dies in -71 errors. The probe
+also burns 18-40 seconds per attempt waiting for versioned firmware
+files (rtw8922a_fw-4..1.bin) that do not exist, falling back to the
+sysfs loader each time. The failure disconnects the device, the dongle
+resets, re-enumerates as the DISK (0bda:1a2b) CD-ROM, switches back to
+WLAN mode, and the cycle repeats. On iStoreOS this burns ~90 seconds
+per boot, during which the USB activity knocks the on-board bcmgenet
+GbE link down (WAN DHCP fails and the dongle has to be unplugged to
+boot cleanly), and netifd gives up on the wifi radio before the phy
+ever registers.
+
+The re-enumeration loop is the only mechanism that eventually gets the
+dongle onto the SuperSpeed bus, where it works fine. Accelerate it:
+when an RTL8922A enumerates below SuperSpeed, reset the device
+immediately instead of running a full doomed probe. A port reset
+re-trains the link and the device re-enumerates within seconds,
+usually at SuperSpeed, skipping both the DISK detour and the firmware
+fallback wait. A module-level counter caps the resets at 5 so a port
+that never reaches SuperSpeed falls back to the stock behaviour
+instead of looping forever.
+
+Users who disable USB3 switching with switch_usb_mode=N keep the old
+behaviour.
+---
+diff --git a/usb.c b/usb.c
+index 1399439..0a5a4f0 100644
+--- a/usb.c
++++ b/usb.c
+@@ -14,6 +14,8 @@ module_param_named(switch_usb_mode, rtw89_switch_usb_mode, bool, 0644);
+ MODULE_PARM_DESC(switch_usb_mode,
+ 		 "Set to N to disable switching to USB 3 mode to avoid potential interference in the 2.4 GHz band (default: Y)");
+ 
++static atomic_t rtw89_hs_reset_count = ATOMIC_INIT(0);
++
+ static void rtw89_usb_read_port_complete(struct urb *urb);
+ 
+ static void rtw89_usb_vendorreq(struct rtw89_dev *rtwdev, u32 addr,
+@@ -1203,6 +1205,17 @@ int rtw89_usb_probe(struct usb_interface *intf,
+ 		goto err_free_hw;
+ 	}
+ 
++	if (rtwdev->chip->chip_id == RTL8922A &&
++	    rtwusb->udev->speed != USB_SPEED_SUPER &&
++	    rtw89_switch_usb_mode &&
++	    atomic_read(&rtw89_hs_reset_count) < 5) {
++		atomic_inc(&rtw89_hs_reset_count);
++		rtw89_info(rtwdev, "RTL8922A on high-speed bus, resetting for SuperSpeed re-enumeration\n");
++		usb_reset_device(rtwusb->udev);
++		ret = -ENODEV;
++		goto err_intf_deinit;
++	}
++
+ 	ret = rtw89_usb_switch_mode(rtwdev);
+ 	if (ret) {
+ 		/* Not a fail, but we do need to skip rtw89_core_register. */
