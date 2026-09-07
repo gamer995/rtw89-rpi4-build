@@ -23,19 +23,23 @@ ever registers.
 
 The re-enumeration loop is the only mechanism that eventually gets the
 dongle onto the SuperSpeed bus, where it works fine. Accelerate it:
-when an RTL8922A enumerates below SuperSpeed, reset the device
-immediately instead of running a full doomed probe. A port reset
-re-trains the link and the device re-enumerates within seconds,
-usually at SuperSpeed, skipping both the DISK detour and the firmware
-fallback wait. A module-level counter caps the resets at 5 so a port
-that never reaches SuperSpeed falls back to the stock behaviour
-instead of looping forever.
+when an RTL8922A enumerates below SuperSpeed, reset the device up to
+five times in a row, checking the negotiated speed after each port
+reset. A reset that lands on the SuperSpeed bus lets probe continue
+normally on a working link. On a USB2-only bus (e.g. the dongle sits
+behind a USB2 hub) every reset still enumerates at high-speed; after
+five attempts probe continues anyway, preserving the stock
+probe/switch behaviour instead of leaving the device without a driver
+(note: usb_reset_device() re-binds in place, so a probe that bails out
+after a reset would leave the device stuck unbound). A module-level
+counter caps the resets at 25 across re-enumerations, after which the
+stock behaviour is used permanently.
 
 Users who disable USB3 switching with switch_usb_mode=N keep the old
 behaviour.
 ---
 diff --git a/usb.c b/usb.c
-index 1399439..0a5a4f0 100644
+index 1399439..4122e26 100644
 --- a/usb.c
 +++ b/usb.c
 @@ -14,6 +14,8 @@ module_param_named(switch_usb_mode, rtw89_switch_usb_mode, bool, 0644);
@@ -47,19 +51,30 @@ index 1399439..0a5a4f0 100644
  static void rtw89_usb_read_port_complete(struct urb *urb);
  
  static void rtw89_usb_vendorreq(struct rtw89_dev *rtwdev, u32 addr,
-@@ -1203,6 +1205,17 @@ int rtw89_usb_probe(struct usb_interface *intf,
+@@ -1203,6 +1205,28 @@ int rtw89_usb_probe(struct usb_interface *intf,
  		goto err_free_hw;
  	}
  
 +	if (rtwdev->chip->chip_id == RTL8922A &&
-+	    rtwusb->udev->speed != USB_SPEED_SUPER &&
 +	    rtw89_switch_usb_mode &&
-+	    atomic_read(&rtw89_hs_reset_count) < 5) {
-+		atomic_inc(&rtw89_hs_reset_count);
-+		rtw89_info(rtwdev, "RTL8922A on high-speed bus, resetting for SuperSpeed re-enumeration\n");
-+		usb_reset_device(rtwusb->udev);
-+		ret = -ENODEV;
-+		goto err_intf_deinit;
++	    atomic_read(&rtw89_hs_reset_count) < 25) {
++		int n;
++
++		for (n = 0; n < 5; n++) {
++			atomic_inc(&rtw89_hs_reset_count);
++			rtw89_info(rtwdev, "RTL8922A on high-speed bus, resetting for SuperSpeed re-enumeration (attempt %d/5)\n",
++				n + 1);
++			if (usb_reset_device(rtwusb->udev))
++				break;
++			msleep(200);
++			if (rtwusb->udev->speed == USB_SPEED_SUPER)
++				break;
++		}
++
++		if (rtwusb->udev->speed == USB_SPEED_SUPER)
++			rtw89_info(rtwdev, "RTL8922A re-enumerated at SuperSpeed, continuing probe\n");
++		else
++			rtw89_info(rtwdev, "RTL8922A still on high-speed bus, continuing probe anyway\n");
 +	}
 +
  	ret = rtw89_usb_switch_mode(rtwdev);
